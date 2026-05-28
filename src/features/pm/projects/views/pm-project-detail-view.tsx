@@ -73,6 +73,7 @@ import {
   updateDevFlowProjectTask,
   updateDevFlowWorkOrder,
   verifyDevFlowGithubDelivery,
+  verifyDevFlowLlmProvider,
 } from "@/shared/api/devflow-api";
 import { useDevFlowOrchestrationProviderStatus, useDevFlowOrchestrationStatus, useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
 
@@ -158,6 +159,9 @@ function BackendProjectDetail({ project, onBack }) {
   const [githubVerification, setGithubVerification] = useState(null);
   const [githubVerificationLoading, setGithubVerificationLoading] = useState(false);
   const [githubVerificationError, setGithubVerificationError] = useState("");
+  const [llmVerification, setLlmVerification] = useState(null);
+  const [llmVerificationLoading, setLlmVerificationLoading] = useState(false);
+  const [llmVerificationError, setLlmVerificationError] = useState("");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [orchestrationAction, setOrchestrationAction] = useState("");
@@ -229,6 +233,20 @@ function BackendProjectDetail({ project, onBack }) {
       setGithubVerificationError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setGithubVerificationLoading(false);
+    }
+  };
+
+  const verifyLlmProvider = async () => {
+    setLlmVerificationLoading(true);
+    setLlmVerificationError("");
+    try {
+      setLlmVerification(await verifyDevFlowLlmProvider(detail.id));
+      await provider.refresh?.();
+    } catch (nextError) {
+      setLlmVerification(null);
+      setLlmVerificationError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setLlmVerificationLoading(false);
     }
   };
 
@@ -523,6 +541,9 @@ function BackendProjectDetail({ project, onBack }) {
               githubVerification={githubVerification}
               githubVerificationLoading={githubVerificationLoading}
               githubVerificationError={githubVerificationError}
+              llmVerification={llmVerification}
+              llmVerificationLoading={llmVerificationLoading}
+              llmVerificationError={llmVerificationError}
               workOrders={outputs.workOrders}
               artifacts={outputs.artifacts}
               events={outputs.events}
@@ -536,6 +557,7 @@ function BackendProjectDetail({ project, onBack }) {
               onRerunReady={rerunReadyWorkOrders}
               onRetryFailedWorkOrder={retryFailedWorkOrder}
               onVerifyGithubDelivery={verifyGithubDelivery}
+              onVerifyLlmProvider={verifyLlmProvider}
               onRefresh={async () => {
                 setDetail(await getDevFlowProject(detail.id));
                 await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), provider.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
@@ -771,7 +793,7 @@ function BackendProjectDetail({ project, onBack }) {
   );
 }
 
-function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, providerStatus, providerLoading, providerError, githubVerification, githubVerificationLoading, githubVerificationError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onVerifyGithubDelivery, onRefresh }) {
+function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, providerStatus, providerLoading, providerError, githubVerification, githubVerificationLoading, githubVerificationError, llmVerification, llmVerificationLoading, llmVerificationError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onVerifyGithubDelivery, onVerifyLlmProvider, onRefresh }) {
   const readyWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY");
   const executableWorkOrders = readyWorkOrders.filter((workOrder) => workOrder.instructions?.trim());
   const failedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "FAILED");
@@ -819,6 +841,10 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
           githubVerificationLoading={githubVerificationLoading}
           githubVerificationError={githubVerificationError ? compactBackendError(githubVerificationError) : ""}
           onVerifyGithubDelivery={onVerifyGithubDelivery}
+          llmVerification={llmVerification}
+          llmVerificationLoading={llmVerificationLoading}
+          llmVerificationError={llmVerificationError ? compactBackendError(llmVerificationError) : ""}
+          onVerifyLlmProvider={onVerifyLlmProvider}
         />
       </div>
 

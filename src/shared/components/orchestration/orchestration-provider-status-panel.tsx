@@ -2,7 +2,7 @@
 
 import { Badge, Button } from "@/shared/components/ui";
 import { IconAlertTriangle, IconCheckCircle, IconCpu, IconRefresh } from "@/shared/components/icons";
-import type { DevFlowAgentProviderStatus, DevFlowGithubDeliveryVerification } from "@/shared/api/devflow-api";
+import type { DevFlowAgentProviderStatus, DevFlowGithubDeliveryVerification, DevFlowLlmProviderVerification } from "@/shared/api/devflow-api";
 
 interface OrchestrationProviderStatusPanelProps {
   status: DevFlowAgentProviderStatus | null;
@@ -13,6 +13,10 @@ interface OrchestrationProviderStatusPanelProps {
   githubVerificationLoading?: boolean;
   githubVerificationError?: string;
   onVerifyGithubDelivery?: () => void;
+  llmVerification?: DevFlowLlmProviderVerification | null;
+  llmVerificationLoading?: boolean;
+  llmVerificationError?: string;
+  onVerifyLlmProvider?: () => void;
 }
 
 export function OrchestrationProviderStatusPanel({
@@ -24,6 +28,10 @@ export function OrchestrationProviderStatusPanel({
   githubVerificationLoading = false,
   githubVerificationError = "",
   onVerifyGithubDelivery,
+  llmVerification = null,
+  llmVerificationLoading = false,
+  llmVerificationError = "",
+  onVerifyLlmProvider,
 }: OrchestrationProviderStatusPanelProps) {
   const available = Boolean(status?.available);
   const githubDelivery = status?.githubDelivery;
@@ -58,8 +66,53 @@ export function OrchestrationProviderStatusPanel({
             </div>
           </div>
         </div>
-        <Badge tone={tone} style={undefined}>{label}</Badge>
+        <div className="row gap-2" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {onVerifyLlmProvider && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<IconRefresh size={12} />}
+              iconRight={null}
+              onClick={onVerifyLlmProvider}
+              style={undefined}
+              disabled={llmVerificationLoading || status?.activeMode !== "llm" || !available}
+            >
+              {llmVerificationLoading ? "Verifying..." : "Verify LLM"}
+            </Button>
+          )}
+          <Badge tone={tone} style={undefined}>{label}</Badge>
+        </div>
       </div>
+
+      {(llmVerification || llmVerificationError) && (
+        <div
+          style={{
+            padding: 10,
+            border: `1px solid ${llmVerification?.ok ? "rgba(16,185,129,.24)" : "rgba(245,158,11,.28)"}`,
+            background: llmVerification?.ok ? "rgba(16,185,129,.07)" : "rgba(245,158,11,.08)",
+            borderRadius: 8,
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 800 }}>LLM live verification</div>
+              <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 2, overflowWrap: "anywhere" }}>
+                {llmVerificationError || llmVerification?.reason || "Selected graph LLM provider responded to a minimal JSON request."}
+              </div>
+            </div>
+            <Badge tone={llmVerification?.ok ? "green" : "amber"} style={undefined}>{llmVerification?.ok ? "Verified" : "Check failed"}</Badge>
+          </div>
+          {llmVerification && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+              <ProviderMiniFact label="Provider" value={llmVerification.provider} />
+              <ProviderMiniFact label="Model" value={llmVerification.model} />
+              <ProviderMiniFact label="Tokens" value={llmVerification.usage ? `${llmVerification.usage.inputTokens}/${llmVerification.usage.outputTokens}` : "Unknown"} />
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
         <ProviderMiniFact label="Requested" value={providerLabel(status?.requestedMode)} />

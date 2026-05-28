@@ -513,6 +513,19 @@ export interface DevFlowGithubDeliveryVerification {
   reason: string | null;
 }
 
+export interface DevFlowLlmProviderVerification {
+  ok: boolean;
+  provider: string;
+  model: string;
+  fallbackModel: string | null;
+  baseUrl: string;
+  reason: string | null;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+  } | null;
+}
+
 export interface DevFlowAgentProviderStatus {
   requestedMode: DevFlowAgentProviderMode;
   activeMode: DevFlowAgentProviderMode;
@@ -1218,6 +1231,12 @@ export function getDevFlowOrchestrationProviderStatus(projectId: string): Promis
 
 export function verifyDevFlowGithubDelivery(projectId: string): Promise<DevFlowGithubDeliveryVerification> {
   return request<DevFlowGithubDeliveryVerification>(`/projects/${projectId}/orchestration/github-delivery/verify`, {
+    method: "POST",
+  });
+}
+
+export function verifyDevFlowLlmProvider(projectId: string): Promise<DevFlowLlmProviderVerification> {
+  return request<DevFlowLlmProviderVerification>(`/projects/${projectId}/orchestration/llm-provider/verify`, {
     method: "POST",
   });
 }
