@@ -503,6 +503,16 @@ export interface DevFlowGithubDeliveryStatus {
   reason: string | null;
 }
 
+export interface DevFlowGithubDeliveryVerification {
+  ok: boolean;
+  status: DevFlowGithubDeliveryStatus;
+  owner: string | null;
+  installationOwner: string | null;
+  repositoriesVisible: number | null;
+  permissions: Record<string, string> | null;
+  reason: string | null;
+}
+
 export interface DevFlowAgentProviderStatus {
   requestedMode: DevFlowAgentProviderMode;
   activeMode: DevFlowAgentProviderMode;
@@ -1204,6 +1214,12 @@ export function getDevFlowOrchestrationRun(projectId: string, runId: string): Pr
 
 export function getDevFlowOrchestrationProviderStatus(projectId: string): Promise<DevFlowAgentProviderStatus> {
   return request<DevFlowAgentProviderStatus>(`/projects/${projectId}/orchestration/provider`);
+}
+
+export function verifyDevFlowGithubDelivery(projectId: string): Promise<DevFlowGithubDeliveryVerification> {
+  return request<DevFlowGithubDeliveryVerification>(`/projects/${projectId}/orchestration/github-delivery/verify`, {
+    method: "POST",
+  });
 }
 
 export function getDevFlowConversations(projectId: string): Promise<DevFlowConversation[]> {

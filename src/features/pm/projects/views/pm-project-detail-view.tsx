@@ -72,6 +72,7 @@ import {
   updateDevFlowProjectKickoff,
   updateDevFlowProjectTask,
   updateDevFlowWorkOrder,
+  verifyDevFlowGithubDelivery,
 } from "@/shared/api/devflow-api";
 import { useDevFlowOrchestrationProviderStatus, useDevFlowOrchestrationStatus, useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
 
@@ -154,6 +155,9 @@ function BackendProjectDetail({ project, onBack }) {
   const [deliveryReadiness, setDeliveryReadiness] = useState(null);
   const [deliveryReadinessLoading, setDeliveryReadinessLoading] = useState(false);
   const [deliveryReadinessError, setDeliveryReadinessError] = useState("");
+  const [githubVerification, setGithubVerification] = useState(null);
+  const [githubVerificationLoading, setGithubVerificationLoading] = useState(false);
+  const [githubVerificationError, setGithubVerificationError] = useState("");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [orchestrationAction, setOrchestrationAction] = useState("");
@@ -211,6 +215,20 @@ function BackendProjectDetail({ project, onBack }) {
       setDeliveryReadinessError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setDeliveryReadinessLoading(false);
+    }
+  };
+
+  const verifyGithubDelivery = async () => {
+    setGithubVerificationLoading(true);
+    setGithubVerificationError("");
+    try {
+      setGithubVerification(await verifyDevFlowGithubDelivery(detail.id));
+      await provider.refresh?.();
+    } catch (nextError) {
+      setGithubVerification(null);
+      setGithubVerificationError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setGithubVerificationLoading(false);
     }
   };
 
@@ -502,6 +520,9 @@ function BackendProjectDetail({ project, onBack }) {
               providerStatus={provider.status}
               providerLoading={provider.loading}
               providerError={provider.error}
+              githubVerification={githubVerification}
+              githubVerificationLoading={githubVerificationLoading}
+              githubVerificationError={githubVerificationError}
               workOrders={outputs.workOrders}
               artifacts={outputs.artifacts}
               events={outputs.events}
@@ -514,6 +535,7 @@ function BackendProjectDetail({ project, onBack }) {
               onStart={startRun}
               onRerunReady={rerunReadyWorkOrders}
               onRetryFailedWorkOrder={retryFailedWorkOrder}
+              onVerifyGithubDelivery={verifyGithubDelivery}
               onRefresh={async () => {
                 setDetail(await getDevFlowProject(detail.id));
                 await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), provider.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
@@ -749,7 +771,7 @@ function BackendProjectDetail({ project, onBack }) {
   );
 }
 
-function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, providerStatus, providerLoading, providerError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onRefresh }) {
+function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, providerStatus, providerLoading, providerError, githubVerification, githubVerificationLoading, githubVerificationError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onVerifyGithubDelivery, onRefresh }) {
   const readyWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY");
   const executableWorkOrders = readyWorkOrders.filter((workOrder) => workOrder.instructions?.trim());
   const failedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "FAILED");
@@ -793,6 +815,10 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
           status={providerStatus}
           loading={providerLoading}
           error={providerError ? compactBackendError(providerError) : ""}
+          githubVerification={githubVerification}
+          githubVerificationLoading={githubVerificationLoading}
+          githubVerificationError={githubVerificationError ? compactBackendError(githubVerificationError) : ""}
+          onVerifyGithubDelivery={onVerifyGithubDelivery}
         />
       </div>
 

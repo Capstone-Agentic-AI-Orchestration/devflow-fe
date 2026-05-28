@@ -1,14 +1,18 @@
 "use client";
 
-import { Badge } from "@/shared/components/ui";
-import { IconAlertTriangle, IconCheckCircle, IconCpu } from "@/shared/components/icons";
-import type { DevFlowAgentProviderStatus } from "@/shared/api/devflow-api";
+import { Badge, Button } from "@/shared/components/ui";
+import { IconAlertTriangle, IconCheckCircle, IconCpu, IconRefresh } from "@/shared/components/icons";
+import type { DevFlowAgentProviderStatus, DevFlowGithubDeliveryVerification } from "@/shared/api/devflow-api";
 
 interface OrchestrationProviderStatusPanelProps {
   status: DevFlowAgentProviderStatus | null;
   loading?: boolean;
   error?: string;
   compact?: boolean;
+  githubVerification?: DevFlowGithubDeliveryVerification | null;
+  githubVerificationLoading?: boolean;
+  githubVerificationError?: string;
+  onVerifyGithubDelivery?: () => void;
 }
 
 export function OrchestrationProviderStatusPanel({
@@ -16,6 +20,10 @@ export function OrchestrationProviderStatusPanel({
   loading = false,
   error = "",
   compact = false,
+  githubVerification = null,
+  githubVerificationLoading = false,
+  githubVerificationError = "",
+  onVerifyGithubDelivery,
 }: OrchestrationProviderStatusPanelProps) {
   const available = Boolean(status?.available);
   const githubDelivery = status?.githubDelivery;
@@ -76,12 +84,55 @@ export function OrchestrationProviderStatusPanel({
                 {githubDelivery.reason || `Ready to create repositories in ${githubDelivery.owner || "configured owner"}.`}
               </div>
             </div>
-            <Badge tone={githubDelivery.available ? "green" : "amber"} style={undefined}>{githubDelivery.available ? "Ready" : "Setup needed"}</Badge>
+            <div className="row gap-2" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {onVerifyGithubDelivery && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<IconRefresh size={12} />}
+                  iconRight={null}
+                  onClick={onVerifyGithubDelivery}
+                  style={undefined}
+                  disabled={githubVerificationLoading || !githubDelivery.available}
+                >
+                  {githubVerificationLoading ? "Verifying..." : "Verify"}
+                </Button>
+              )}
+              <Badge tone={githubDelivery.available ? "green" : "amber"} style={undefined}>{githubDelivery.available ? "Ready" : "Setup needed"}</Badge>
+            </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
             <ProviderMiniFact label="Owner" value={githubDelivery.owner || "Not set"} />
             <ProviderMiniFact label="Source" value={githubDelivery.ownerSource || "Unknown"} />
           </div>
+          {(githubVerification || githubVerificationError) && (
+            <div
+              style={{
+                padding: 10,
+                border: `1px solid ${githubVerification?.ok ? "rgba(16,185,129,.24)" : "rgba(245,158,11,.28)"}`,
+                background: githubVerification?.ok ? "rgba(16,185,129,.07)" : "rgba(245,158,11,.08)",
+                borderRadius: 8,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800 }}>Live verification</div>
+                  <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 2, overflowWrap: "anywhere" }}>
+                    {githubVerificationError || githubVerification?.reason || "GitHub App installation and repository access verified."}
+                  </div>
+                </div>
+                <Badge tone={githubVerification?.ok ? "green" : "amber"} style={undefined}>{githubVerification?.ok ? "Verified" : "Check failed"}</Badge>
+              </div>
+              {githubVerification && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+                  <ProviderMiniFact label="Install owner" value={githubVerification.installationOwner || "Unknown"} />
+                  <ProviderMiniFact label="Visible repos" value={githubVerification.repositoriesVisible === null ? "Unknown" : String(githubVerification.repositoriesVisible)} />
+                </div>
+              )}
+            </div>
+          )}
           {githubDelivery.missingRequirements?.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {githubDelivery.missingRequirements.map((requirement) => (
