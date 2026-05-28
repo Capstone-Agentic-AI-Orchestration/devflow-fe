@@ -68,7 +68,7 @@ import {
   updateDevFlowProjectTask,
   updateDevFlowWorkOrder,
 } from "@/shared/api/devflow-api";
-import { useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
+import { useDevFlowOrchestrationStatus, useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
 
 export function PMProjectDetailView({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -141,6 +141,7 @@ function BackendProjectDetail({ project, onBack }) {
   const [detail, setDetail] = useState(project);
   const [tab, setTab] = useState(project.kickoff?.status === "READY" || project.runId ? "overview" : "kickoff");
   const outputs = useDevFlowProjectOutputs(detail.id, { includeTasks: true, includeTimeline: true, includeWorkOrders: true });
+  const orchestration = useDevFlowOrchestrationStatus(detail.id);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
@@ -170,6 +171,9 @@ function BackendProjectDetail({ project, onBack }) {
     ? Math.min(100, Math.round((detail.runBudget.tokensConsumed / detail.runBudget.tokenBudget) * 100))
     : 0;
   const managerIds = projectManagerIds(detail);
+  const readyExecutableWorkOrders = outputs.workOrders.filter((workOrder) => workOrder.status === "READY" && workOrder.instructions?.trim());
+  const orchestrationBlockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
+  const canStartOrchestration = orchestrationBlockers.length === 0 && !detail.runId && !starting;
 
   useEffect(() => {
     let active = true;
@@ -277,9 +281,10 @@ function BackendProjectDetail({ project, onBack }) {
   };
 
   const startRun = async () => {
-    if (!kickoffReady && !detail.runId) {
-      setError("Complete the project kickoff before starting orchestration.");
-      setTab("kickoff");
+    const blockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
+    if (blockers.length && !detail.runId) {
+      setError(blockers[0]);
+      setTab(blockers[0].includes("work order") ? "work-orders" : "kickoff");
       return;
     }
 
@@ -287,7 +292,10 @@ function BackendProjectDetail({ project, onBack }) {
     setError("");
     try {
       await startDevFlowOrchestration(detail.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.()]);
+      setTab("overview");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -303,8 +311,8 @@ function BackendProjectDetail({ project, onBack }) {
         actions={
           <div className="row gap-2">
             <Button variant="secondary" size="sm" icon={<IconArrowLeft size={14} />} onClick={onBack}>All projects</Button>
-            <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={startRun} disabled={starting || Boolean(detail.runId) || !kickoffReady}>
-              {detail.runId ? "Run started" : starting ? "Starting..." : kickoffReady ? "Start orchestration" : "Complete kickoff first"}
+            <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={startRun} disabled={!canStartOrchestration}>
+              {detail.runId ? "Run started" : starting ? "Starting..." : canStartOrchestration ? "Start orchestration" : "Not ready"}
             </Button>
           </div>
         }
@@ -323,7 +331,7 @@ function BackendProjectDetail({ project, onBack }) {
               <div className="row gap-2" style={{ marginBottom: 10, flexWrap: "wrap" }}>
                 <Badge tone={status.tone}>{status.label}</Badge>
                 <Badge tone={lifecycle.tone}>{lifecycle.label}</Badge>
-                <Badge tone={detail.runId ? "green" : "gray"}>{detail.runId ? "Orchestration ready" : "Draft only"}</Badge>
+                <Badge tone={detail.runId ? "green" : canStartOrchestration ? "blue" : "gray"}>{detail.runId ? "Run active" : canStartOrchestration ? "Ready to start" : "Not ready"}</Badge>
                 <Badge tone={kickoffReady ? "green" : "yellow"}>{kickoffReady ? "Kickoff ready" : "Kickoff required"}</Badge>
               </div>
               <h2 style={{ margin: 0, fontSize: 24, letterSpacing: 0 }}>{detail.companyName}</h2>
@@ -341,6 +349,7 @@ function BackendProjectDetail({ project, onBack }) {
           <FactRow icon={<IconCalendar size={15} />} label="Created" value={formatBackendDate(detail.createdAt)} />
           <FactRow icon={<IconRefresh size={15} />} label="Updated" value={formatBackendDate(detail.updatedAt)} />
           <FactRow icon={<IconWorkflow size={15} />} label="Next action" value={lifecycle.nextAction} />
+          <FactRow icon={<IconCpu size={15} />} label="Orchestration" value={orchestration.loading ? "Checking..." : orchestration.status?.status || detail.status} />
           <FactRow icon={<IconCpu size={15} />} label="Run ID" value={detail.runId || "Not started"} />
           <FactRow icon={<IconGitBranch size={15} />} label="Repo" value={detail.repoUrl || "Not linked"} />
         </Card>
@@ -373,6 +382,7 @@ function BackendProjectDetail({ project, onBack }) {
                   <MiniStat label="Members" value={String(detail.members.length)} />
                   <MiniStat label="Gate decisions" value={String(detail.gates.length)} />
                   <MiniStat label="Events" value={String(detail._count.eventLogs)} />
+                  <MiniStat label="Ready work orders" value={String(readyExecutableWorkOrders.length)} />
                   <MiniStat label="Progress" value={`${lifecycle.progress || 0}%`} />
                 </div>
               </Card>
@@ -391,6 +401,22 @@ function BackendProjectDetail({ project, onBack }) {
                 await resolveDevFlowProjectDeliveryRevision(detail.id, { note });
                 setDetail(await getDevFlowProject(detail.id));
                 await outputs.refresh?.();
+              }}
+            />
+            <BackendOrchestrationPanel
+              detail={detail}
+              status={orchestration.status}
+              statusLoading={orchestration.loading}
+              statusError={orchestration.error}
+              workOrders={outputs.workOrders}
+              artifacts={outputs.artifacts}
+              events={outputs.events}
+              blockers={orchestrationBlockers}
+              starting={starting}
+              onStart={startRun}
+              onRefresh={async () => {
+                setDetail(await getDevFlowProject(detail.id));
+                await Promise.all([outputs.refresh?.(), orchestration.refresh?.()]);
               }}
             />
           </div>
@@ -615,6 +641,100 @@ function BackendProjectDetail({ project, onBack }) {
           </Card>
         )}
       </div>
+    </div>
+  );
+}
+
+function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, workOrders, artifacts, events, blockers, starting, onStart, onRefresh }) {
+  const readyWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY");
+  const executableWorkOrders = readyWorkOrders.filter((workOrder) => workOrder.instructions?.trim());
+  const completedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "COMPLETED");
+  const generatedWorkOrderArtifacts = artifacts.filter((artifact) => artifact.filePath?.startsWith("work-orders/"));
+  const pendingPmReview = artifacts.filter((artifact) => (artifact.outputReviewStatus || "PENDING") === "PENDING");
+  const statusView = backendStatusBits(status?.status || detail.status);
+  const currentNode = status?.currentNode && status.currentNode !== "none" ? status.currentNode : detail.runId || "No active node";
+
+  return (
+    <Card style={{ padding: 22 }}>
+      <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <SectionTitle
+          title="Mock-provider orchestration"
+          subtitle="Local LangGraph agents execute READY work orders and send generated artifacts to PM review."
+          icon={<IconCpu size={16} />}
+        />
+        <div className="row gap-2" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={onRefresh}>Refresh</Button>
+          <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={onStart} disabled={starting || Boolean(detail.runId) || blockers.length > 0}>
+            {detail.runId ? "Run started" : starting ? "Starting..." : "Start mock run"}
+          </Button>
+        </div>
+      </div>
+
+      {statusError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(statusError)}</div>}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 14 }}>
+        <OrchestrationFact label="Run status" value={statusLoading ? "Checking..." : statusView.label} tone={statusView.tone} />
+        <OrchestrationFact label="Current node" value={currentNode} tone="purple" mono />
+        <OrchestrationFact label="Executable work orders" value={String(executableWorkOrders.length)} tone={executableWorkOrders.length ? "green" : "gray"} />
+        <OrchestrationFact label="Completed work orders" value={String(completedWorkOrders.length)} tone={completedWorkOrders.length ? "green" : "gray"} />
+        <OrchestrationFact label="Generated artifacts" value={String(generatedWorkOrderArtifacts.length)} tone={generatedWorkOrderArtifacts.length ? "blue" : "gray"} />
+        <OrchestrationFact label="PM review queue" value={String(pendingPmReview.length)} tone={pendingPmReview.length ? "amber" : "green"} />
+      </div>
+
+      {blockers.length > 0 && !detail.runId ? (
+        <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+          {blockers.map((blocker) => (
+            <div key={blocker} className="row gap-2" style={{ padding: 10, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
+              <IconAlertTriangle size={13} style={{ color: "#FBBF24", flexShrink: 0 }} />
+              <span>{blocker}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ marginTop: 14, padding: 10, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
+          {detail.runId ? "This project already has an orchestration run. Review generated artifacts and publish approved outputs when ready." : "This project can start the local mock-provider orchestration run."}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, .7fr)", gap: 14, marginTop: 16 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>READY work orders</div>
+          {readyWorkOrders.length === 0 ? (
+            <div style={{ color: "var(--text-3)", fontSize: 12.5 }}>No READY work orders are queued.</div>
+          ) : readyWorkOrders.slice(0, 5).map((workOrder) => (
+            <div key={workOrder.id} className="row gap-2" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)", alignItems: "flex-start" }}>
+              <Badge tone={workOrder.instructions?.trim() ? "blue" : "amber"}>{workOrder.agentType}</Badge>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{workOrder.title}</div>
+                <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 2 }}>{workOrder.instructions?.trim() ? "Instructions ready" : "Missing instructions"}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Recent run events</div>
+          {events.length === 0 ? (
+            <div style={{ color: "var(--text-3)", fontSize: 12.5 }}>No orchestration event logs yet.</div>
+          ) : events.slice(0, 5).map((event) => (
+            <div key={event.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700 }}>{event.nodeName}</div>
+              <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 2 }}>{event.eventType} - {formatBackendDate(event.occurredAt)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function OrchestrationFact({ label, value, tone, mono }) {
+  return (
+    <div style={{ padding: 12, borderRadius: 10, background: "rgba(8,14,32,.55)", border: "1px solid var(--border)", minWidth: 0 }}>
+      <div className="row" style={{ justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <span style={{ color: "var(--text-3)", fontSize: 11.5 }}>{label}</span>
+        <Badge tone={tone || "gray"}>{tone === "green" ? "OK" : tone === "amber" ? "Review" : tone === "red" ? "Blocked" : "Live"}</Badge>
+      </div>
+      <div className={mono ? "mono" : undefined} style={{ fontSize: 15, fontWeight: 800, overflowWrap: "anywhere" }}>{value}</div>
     </div>
   );
 }
@@ -1863,6 +1983,19 @@ function projectManagerIds(detail) {
       .filter((member) => ["PM", "ADMIN"].includes(member.role))
       .map((member) => member.userId),
   ].filter(Boolean));
+}
+
+function orchestrationReadinessBlockers(detail, workOrders = [], outputsLoading = false) {
+  const blockers = [];
+  const kickoffReady = detail.kickoff?.status === "READY" || detail.kickoff?.status === "LOCKED";
+  const readyExecutableWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY" && workOrder.instructions?.trim());
+
+  if (detail.runId) return blockers;
+  if (!kickoffReady) blockers.push("Complete and save the kickoff checklist before starting orchestration.");
+  if (outputsLoading) blockers.push("Wait for work orders to finish loading before starting orchestration.");
+  if (!outputsLoading && readyExecutableWorkOrders.length === 0) blockers.push("Create or mark at least one work order as READY with instructions before starting orchestration.");
+
+  return blockers;
 }
 
 function workOrderDispatchBlocker(workOrder) {
