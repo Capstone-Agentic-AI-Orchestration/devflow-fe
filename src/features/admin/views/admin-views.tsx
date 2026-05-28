@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, Input, Textarea } from "@/shared/components/ui";
 import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { getDevFlowOrchestrationRuns, getDevFlowProjectEvents } from "@/shared/api/devflow-api";
 import { useDevFlowOrchestrationProviderStatus, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
 import { compactDevFlowError } from "@/shared/utils/devflow-projects";
 import {
@@ -135,31 +136,170 @@ function AlertRow({ alert }) {
 }
 
 export function AdminOrchestrationView() {
+  const projectsState = useDevFlowProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const selectedProject = projectsState.projects.find((project) => project.id === selectedProjectId) || projectsState.projects[0] || null;
+  const effectiveProjectId = selectedProject?.id || "";
+  const provider = useDevFlowOrchestrationProviderStatus(effectiveProjectId);
+  const [runs, setRuns] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState("");
+  const latestRun = runs[0] || null;
+  const executions = runs.flatMap((run) => run.executions || []);
+  const succeededExecutions = executions.filter((execution) => execution.status === "SUCCEEDED").length;
+  const failedExecutions = executions.filter((execution) => execution.status === "FAILED").length;
+  const activeExecutions = executions.filter((execution) => execution.status === "RUNNING").length;
+
+  const refreshRuns = async (projectId = effectiveProjectId) => {
+    if (!projectId) {
+      setRuns([]);
+      setEvents([]);
+      setRunsLoading(false);
+      setRunsError("");
+      return;
+    }
+
+    setRunsLoading(true);
+    setRunsError("");
+    try {
+      const [nextRuns, nextEvents] = await Promise.all([
+        getDevFlowOrchestrationRuns(projectId),
+        getDevFlowProjectEvents(projectId),
+      ]);
+      setRuns(nextRuns);
+      setEvents(nextEvents);
+    } catch (nextError) {
+      setRuns([]);
+      setEvents([]);
+      setRunsError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setRunsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedProjectId && projectsState.projects[0]?.id) setSelectedProjectId(projectsState.projects[0].id);
+  }, [projectsState.projects, selectedProjectId]);
+
+  useEffect(() => {
+    void refreshRuns(effectiveProjectId);
+  }, [effectiveProjectId]);
+
+  const refresh = () => {
+    projectsState.refresh();
+    provider.refresh();
+    refreshRuns();
+  };
+
   return (
     <div data-screen-label="Admin - Orchestration">
-      <AdminPageHeader title="AI Orchestration" subtitle="Agent aggregate health, Pipeline events, and Workflow versions." actions={<Button variant="primary" size="sm" icon={<IconDownload size={13} />}>Export telemetry</Button>} />
+      <AdminPageHeader title="AI Orchestration" subtitle="Backend orchestration runs, provider status, execution results, and recent event logs." actions={<Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={refresh}>Refresh</Button>} />
       <Card style={{ padding: 22, marginBottom: 18 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 14px" }}>Agent aggregate</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-          {AGENT_KEYS.map((key) => {
-            const agent = AGENT_DEFS[key];
-            const metric = AGENT_AGGREGATE[key];
-            return <div key={key} style={{ padding: 14, borderRadius: 10, border: `1px solid ${agent.color}33`, background: `${agent.color}10` }}><div className="row gap-2"><IconCpu size={14} style={{ color: agent.color }} /><span style={{ fontWeight: 600, fontSize: 12.5 }}>{agent.name}</span></div><div style={{ fontSize: 22, fontWeight: 700, marginTop: 10 }}>{metric.active}</div><div style={{ color: "var(--text-3)", fontSize: 11, marginTop: 2 }}>active - {metric.success}% success - {metric.latency}</div></div>;
-          })}
+        <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 16 }}>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Project runtime</h3>
+            <p style={{ color: "var(--text-3)", fontSize: 12, margin: "4px 0 0" }}>Choose a backend project to inspect durable orchestration state.</p>
+          </div>
+          <Field label="Project">
+            <select className="input select" value={effectiveProjectId} onChange={(event) => setSelectedProjectId(event.target.value)} style={{ minWidth: 300 }}>
+              {projectsState.projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.companyName}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {projectsState.error && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginBottom: 12 }}>{compactDevFlowError(projectsState.error)}</div>}
+        {!projectsState.loading && !selectedProject ? (
+          <div style={{ color: "var(--text-3)", fontSize: 13 }}>No backend projects are available to inspect.</div>
+        ) : (
+          <OrchestrationProviderStatusPanel status={provider.status} loading={projectsState.loading || provider.loading} error={provider.error ? compactDevFlowError(provider.error) : ""} compact />
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginTop: 16 }}>
+          <StatCard label="Runs" value={runsLoading ? "..." : String(runs.length)} sub={latestRun ? `${latestRun.trigger} latest` : "No runs recorded"} icon={<IconCpu size={16} />} />
+          <StatCard label="Executions" value={runsLoading ? "..." : String(executions.length)} sub={`${succeededExecutions} succeeded, ${failedExecutions} failed`} icon={<IconWorkflowIcon />} tint="#10B981" />
+          <StatCard label="Running" value={String(activeExecutions)} sub={latestRun?.currentNode || "No active node"} icon={<IconActivity size={16} />} tint="#F59E0B" />
+          <StatCard label="Events" value={runsLoading ? "..." : String(events.length)} sub="Project event log records" icon={<IconFileText size={16} />} tint="#A78BFA" />
         </div>
       </Card>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) 360px", gap: 18 }}>
-        <Card style={{ padding: 22 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 14px" }}>Pipeline events</h3>
-          {LIVE_PIPELINES.map((run) => <PipelineRow key={run.id} run={run} border />)}
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: 18, borderBottom: "1px solid var(--border)" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Run history</h3>
+            <p style={{ color: "var(--text-3)", fontSize: 12, margin: "4px 0 0" }}>{runs.length} durable backend orchestration run{runs.length === 1 ? "" : "s"}</p>
+            {runsError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 8 }}>{compactDevFlowError(runsError)}</div>}
+          </div>
+          {runsLoading ? (
+            <div style={{ padding: 18, color: "var(--text-2)" }}>Loading orchestration runs...</div>
+          ) : runs.length === 0 ? (
+            <div style={{ padding: 18, color: "var(--text-3)" }}>No orchestration runs recorded for this project.</div>
+          ) : runs.map((run) => <AdminRunRow key={run.id} run={run} />)}
         </Card>
-        <Card style={{ padding: 22 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 14px" }}>Workflow versions</h3>
-          {WORKFLOW_VERSIONS.map((version) => <div key={version.v} style={{ padding: 12, border: "1px solid var(--border)", borderRadius: 10, marginBottom: 10, background: version.current ? "rgba(79,139,255,.10)" : "rgba(8,14,32,.45)" }}><div className="row" style={{ justifyContent: "space-between" }}><span className="mono" style={{ fontWeight: 700 }}>{version.v}</span>{version.current && <Badge tone="blue">Current</Badge>}</div><div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 6 }}>{version.note}</div><div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 5 }}>{version.by} - {version.date}</div></div>)}
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: 18, borderBottom: "1px solid var(--border)" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Recent events</h3>
+            <p style={{ color: "var(--text-3)", fontSize: 12, margin: "4px 0 0" }}>Event log records from the selected project</p>
+          </div>
+          {events.length === 0 ? (
+            <div style={{ padding: 18, color: "var(--text-3)" }}>No event logs yet.</div>
+          ) : events.slice(0, 8).map((event) => (
+            <div key={event.id} style={{ padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontWeight: 700, fontSize: 12.5 }}>{event.nodeName}</div>
+              <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 3 }}>{event.eventType} - {formatAdminDate(event.occurredAt)} - {event.runTokens} tokens</div>
+            </div>
+          ))}
         </Card>
       </div>
     </div>
   );
+}
+
+function AdminRunRow({ run }) {
+  return (
+    <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
+      <div className="row" style={{ justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="mono" style={{ color: "white", fontSize: 12, fontWeight: 800, overflowWrap: "anywhere" }}>{run.runId}</div>
+          <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 4 }}>{run.trigger} - {run.currentNode || "No active node"} - {formatAdminDate(run.startedAt)}</div>
+        </div>
+        <Badge tone={run.status === "SUCCEEDED" ? "green" : run.status === "FAILED" ? "red" : run.status === "RUNNING" ? "blue" : "gray"}>{run.status}</Badge>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+        <Badge tone="green">{run.completedWorkOrders} done</Badge>
+        <Badge tone={run.failedWorkOrders ? "red" : "gray"}>{run.failedWorkOrders} failed</Badge>
+        <Badge tone="blue">{run.completedArtifacts} artifacts</Badge>
+        <Badge tone="purple">{run.providerMode}</Badge>
+      </div>
+      {run.executions?.length ? (
+        <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+          {run.executions.slice(0, 3).map((execution) => (
+            <div key={execution.id} className="row" style={{ justifyContent: "space-between", gap: 8, color: "var(--text-2)", fontSize: 11.5 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{execution.workOrder?.title || execution.workOrderId}</span>
+              <span className="mono">{execution.status}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function IconWorkflowIcon() {
+  return <IconCpu size={16} />;
+}
+
+function formatAdminDate(value) {
+  if (!value) return "Not available";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export function AdminCostView() {
