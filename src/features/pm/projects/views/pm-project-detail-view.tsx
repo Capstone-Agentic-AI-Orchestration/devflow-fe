@@ -52,12 +52,15 @@ import {
   createDevFlowProjectTask,
   createDevFlowWorkOrder,
   dispatchDevFlowWorkOrder,
+  getDevFlowOrchestrationRuns,
   getDevFlowProjectTaskActivity,
   getDevFlowProject,
   getDevFlowProjectArtifact,
   handleDevFlowArtifactRevision,
   publishDevFlowArtifactOutput,
+  rerunReadyDevFlowWorkOrders,
   removeDevFlowProjectMember,
+  retryDevFlowWorkOrder,
   reviewDevFlowArtifactOutput,
   resolveDevFlowProjectDeliveryRevision,
   searchDevFlowProfiles,
@@ -140,10 +143,14 @@ export function PMProjectDetailView({ projectId }: { projectId: string }) {
 function BackendProjectDetail({ project, onBack }) {
   const [detail, setDetail] = useState(project);
   const [tab, setTab] = useState(project.kickoff?.status === "READY" || project.runId ? "overview" : "kickoff");
-  const outputs = useDevFlowProjectOutputs(detail.id, { includeTasks: true, includeTimeline: true, includeWorkOrders: true });
+  const outputs = useDevFlowProjectOutputs(detail.id, { includeEvents: true, includeTasks: true, includeTimeline: true, includeWorkOrders: true });
   const orchestration = useDevFlowOrchestrationStatus(detail.id);
+  const [orchestrationRuns, setOrchestrationRuns] = useState([]);
+  const [orchestrationRunsLoading, setOrchestrationRunsLoading] = useState(false);
+  const [orchestrationRunsError, setOrchestrationRunsError] = useState("");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [orchestrationAction, setOrchestrationAction] = useState("");
   const [error, setError] = useState("");
   const [memberSearchError, setMemberSearchError] = useState("");
   const [memberSearchLoading, setMemberSearchLoading] = useState(false);
@@ -174,6 +181,18 @@ function BackendProjectDetail({ project, onBack }) {
   const readyExecutableWorkOrders = outputs.workOrders.filter((workOrder) => workOrder.status === "READY" && workOrder.instructions?.trim());
   const orchestrationBlockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
   const canStartOrchestration = orchestrationBlockers.length === 0 && !detail.runId && !starting;
+
+  const refreshOrchestrationRuns = async () => {
+    setOrchestrationRunsLoading(true);
+    setOrchestrationRunsError("");
+    try {
+      setOrchestrationRuns(await getDevFlowOrchestrationRuns(detail.id));
+    } catch (nextError) {
+      setOrchestrationRunsError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setOrchestrationRunsLoading(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -216,6 +235,10 @@ function BackendProjectDetail({ project, onBack }) {
       window.clearTimeout(timeout);
     };
   }, [memberForm.email, memberForm.role]);
+
+  useEffect(() => {
+    refreshOrchestrationRuns();
+  }, [detail.id]);
 
   const saveProject = async () => {
     setSaving(true);
@@ -294,12 +317,46 @@ function BackendProjectDetail({ project, onBack }) {
       await startDevFlowOrchestration(detail.id);
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
       setTab("overview");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setStarting(false);
+    }
+  };
+
+  const rerunReadyWorkOrders = async () => {
+    const blockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
+    if (blockers.length) {
+      setError(blockers[0]);
+      return;
+    }
+
+    setOrchestrationAction("rerun-ready");
+    setError("");
+    try {
+      await rerunReadyDevFlowWorkOrders(detail.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      setDetail(await getDevFlowProject(detail.id));
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setOrchestrationAction("");
+    }
+  };
+
+  const retryFailedWorkOrder = async (workOrderId) => {
+    setOrchestrationAction(workOrderId);
+    setError("");
+    try {
+      await retryDevFlowWorkOrder(detail.id, workOrderId);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setOrchestrationAction("");
     }
   };
 
@@ -411,12 +468,18 @@ function BackendProjectDetail({ project, onBack }) {
               workOrders={outputs.workOrders}
               artifacts={outputs.artifacts}
               events={outputs.events}
+              runs={orchestrationRuns}
+              runsLoading={orchestrationRunsLoading}
+              runsError={orchestrationRunsError}
               blockers={orchestrationBlockers}
               starting={starting}
+              actionId={orchestrationAction}
               onStart={startRun}
+              onRerunReady={rerunReadyWorkOrders}
+              onRetryFailedWorkOrder={retryFailedWorkOrder}
               onRefresh={async () => {
                 setDetail(await getDevFlowProject(detail.id));
-                await Promise.all([outputs.refresh?.(), orchestration.refresh?.()]);
+                await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
               }}
             />
           </div>
@@ -645,14 +708,16 @@ function BackendProjectDetail({ project, onBack }) {
   );
 }
 
-function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, workOrders, artifacts, events, blockers, starting, onStart, onRefresh }) {
+function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onRefresh }) {
   const readyWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY");
   const executableWorkOrders = readyWorkOrders.filter((workOrder) => workOrder.instructions?.trim());
+  const failedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "FAILED");
   const completedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "COMPLETED");
   const generatedWorkOrderArtifacts = artifacts.filter((artifact) => artifact.filePath?.startsWith("work-orders/"));
   const pendingPmReview = artifacts.filter((artifact) => (artifact.outputReviewStatus || "PENDING") === "PENDING");
   const statusView = backendStatusBits(status?.status || detail.status);
   const currentNode = status?.currentNode && status.currentNode !== "none" ? status.currentNode : detail.runId || "No active node";
+  const latestRun = runs?.[0];
 
   return (
     <Card style={{ padding: 22 }}>
@@ -664,6 +729,9 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         />
         <div className="row gap-2" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={onRefresh}>Refresh</Button>
+          <Button variant="secondary" size="sm" icon={<IconRocket size={13} />} onClick={onRerunReady} disabled={actionId === "rerun-ready" || blockers.length > 0 || executableWorkOrders.length === 0}>
+            {actionId === "rerun-ready" ? "Queuing..." : "Rerun READY"}
+          </Button>
           <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={onStart} disabled={starting || Boolean(detail.runId) || blockers.length > 0}>
             {detail.runId ? "Run started" : starting ? "Starting..." : "Start mock run"}
           </Button>
@@ -671,15 +739,52 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
       </div>
 
       {statusError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(statusError)}</div>}
+      {runsError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(runsError)}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 14 }}>
         <OrchestrationFact label="Run status" value={statusLoading ? "Checking..." : statusView.label} tone={statusView.tone} />
         <OrchestrationFact label="Current node" value={currentNode} tone="purple" mono />
+        <OrchestrationFact label="Run history" value={runsLoading ? "Loading..." : String(runs?.length || 0)} tone={runs?.length ? "blue" : "gray"} />
         <OrchestrationFact label="Executable work orders" value={String(executableWorkOrders.length)} tone={executableWorkOrders.length ? "green" : "gray"} />
         <OrchestrationFact label="Completed work orders" value={String(completedWorkOrders.length)} tone={completedWorkOrders.length ? "green" : "gray"} />
+        <OrchestrationFact label="Failed work orders" value={String(failedWorkOrders.length)} tone={failedWorkOrders.length ? "red" : "green"} />
         <OrchestrationFact label="Generated artifacts" value={String(generatedWorkOrderArtifacts.length)} tone={generatedWorkOrderArtifacts.length ? "blue" : "gray"} />
         <OrchestrationFact label="PM review queue" value={String(pendingPmReview.length)} tone={pendingPmReview.length ? "amber" : "green"} />
       </div>
+
+      {latestRun && (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid rgba(79,139,255,.24)", background: "rgba(79,139,255,.07)", borderRadius: 10 }}>
+          <div className="row" style={{ justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>Latest run</div>
+              <div className="mono" style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 3 }}>{latestRun.runId}</div>
+            </div>
+            <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+              <OrchestrationRunBadge status={latestRun.status} />
+              <Badge tone="purple">{orchestrationTriggerLabel(latestRun.trigger)}</Badge>
+              <Badge tone="gray">{formatBackendDate(latestRun.startedAt)}</Badge>
+            </div>
+          </div>
+          {latestRun.error && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 8 }}>{latestRun.error}</div>}
+        </div>
+      )}
+
+      {failedWorkOrders.length > 0 && (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid rgba(239,68,68,.28)", background: "rgba(239,68,68,.07)", borderRadius: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Failed work orders</div>
+          {failedWorkOrders.map((workOrder) => (
+            <div key={workOrder.id} className="row gap-2" style={{ justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(239,68,68,.16)", alignItems: "flex-start" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{workOrder.title}</div>
+                {workOrder.executionError && <div style={{ color: "#FCA5A5", fontSize: 11.5, marginTop: 3 }}>{workOrder.executionError}</div>}
+              </div>
+              <Button variant="secondary" size="sm" icon={<IconRefresh size={12} />} onClick={() => onRetryFailedWorkOrder(workOrder.id)} disabled={actionId === workOrder.id || !workOrder.instructions?.trim()}>
+                {actionId === workOrder.id ? "Retrying..." : "Retry"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {blockers.length > 0 && !detail.runId ? (
         <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
@@ -723,8 +828,57 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
           ))}
         </div>
       </div>
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Run history</div>
+        {runsLoading ? (
+          <div style={{ color: "var(--text-3)", fontSize: 12.5 }}>Loading run history...</div>
+        ) : !runs?.length ? (
+          <div style={{ color: "var(--text-3)", fontSize: 12.5 }}>No durable orchestration runs recorded yet.</div>
+        ) : runs.slice(0, 5).map((run) => (
+          <div key={run.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+            <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="mono" style={{ fontSize: 11.5, color: "white", overflowWrap: "anywhere" }}>{run.runId}</div>
+                <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 3 }}>{orchestrationTriggerLabel(run.trigger)} - {run.currentNode || "No node"}</div>
+              </div>
+              <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+                <OrchestrationRunBadge status={run.status} />
+                <Badge tone="green">{run.completedWorkOrders} done</Badge>
+                {run.failedWorkOrders > 0 && <Badge tone="red">{run.failedWorkOrders} failed</Badge>}
+                <Badge tone="blue">{run.completedArtifacts} artifacts</Badge>
+              </div>
+            </div>
+            {run.executions?.length > 0 && (
+              <div style={{ marginTop: 7, color: "var(--text-3)", fontSize: 11.5 }}>
+                {run.executions.length} execution{run.executions.length === 1 ? "" : "s"} recorded
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </Card>
   );
+}
+
+function OrchestrationRunBadge({ status }) {
+  const map = {
+    SUCCEEDED: { tone: "green", label: "Succeeded" },
+    RUNNING: { tone: "blue", label: "Running" },
+    FAILED: { tone: "red", label: "Failed" },
+    CANCELLED: { tone: "gray", label: "Cancelled" },
+  };
+  const next = map[status || "RUNNING"] || map.RUNNING;
+  return <Badge tone={next.tone}>{next.label}</Badge>;
+}
+
+function orchestrationTriggerLabel(trigger) {
+  const map = {
+    START: "Initial start",
+    RERUN_READY_WORK_ORDERS: "READY rerun",
+    WORK_ORDER_DISPATCH: "Manual dispatch",
+    RETRY_FAILED_WORK_ORDER: "Failed retry",
+  };
+  return map[trigger] || trigger;
 }
 
 function OrchestrationFact({ label, value, tone, mono }) {

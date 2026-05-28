@@ -418,6 +418,61 @@ export interface DevFlowWorkOrder {
   createdBy: DevFlowProfile | null;
 }
 
+export interface DevFlowWorkOrderExecution {
+  id: string;
+  projectId: string;
+  orchestrationRunId: string | null;
+  workOrderId: string;
+  artifactId: string | null;
+  executionRunId: string;
+  attempt: number;
+  agentType: DevFlowWorkOrderAgentType;
+  status: "RUNNING" | "SUCCEEDED" | "FAILED";
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata: Record<string, unknown>;
+  workOrder?: {
+    id: string;
+    title: string;
+    status: DevFlowWorkOrderStatus;
+    agentType: DevFlowWorkOrderAgentType;
+    priority?: DevFlowWorkOrderPriority;
+  };
+  artifact?: {
+    id: string;
+    filePath: string;
+    displayName: string | null;
+    outputReviewStatus: DevFlowArtifactOutputReviewStatus;
+    reviewStatus: DevFlowArtifactReviewStatus;
+    createdAt?: string;
+  } | null;
+}
+
+export interface DevFlowOrchestrationRun {
+  id: string;
+  projectId: string;
+  runId: string;
+  providerMode: string;
+  trigger: "START" | "RERUN_READY_WORK_ORDERS" | "WORK_ORDER_DISPATCH" | "RETRY_FAILED_WORK_ORDER";
+  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+  currentNode: string | null;
+  error: string | null;
+  actorId: string | null;
+  readyWorkOrders: number;
+  completedWorkOrders: number;
+  failedWorkOrders: number;
+  completedArtifacts: number;
+  startedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  executions: DevFlowWorkOrderExecution[];
+  events?: DevFlowEventLog[];
+}
+
 export interface DevFlowNotification {
   id: string;
   recipientId: string;
@@ -1021,6 +1076,15 @@ export function dispatchDevFlowWorkOrder(
   });
 }
 
+export function retryDevFlowWorkOrder(
+  projectId: string,
+  workOrderId: string,
+): Promise<DevFlowWorkOrder> {
+  return request<DevFlowWorkOrder>(`/projects/${projectId}/work-orders/${workOrderId}/retry`, {
+    method: "POST",
+  });
+}
+
 export function getDevFlowNotifications(): Promise<DevFlowNotification[]> {
   return request<DevFlowNotification[]>("/notifications");
 }
@@ -1047,6 +1111,14 @@ export function getDevFlowProjectTimeline(projectId: string): Promise<DevFlowPro
 
 export function getDevFlowOrchestrationStatus(projectId: string): Promise<DevFlowOrchestrationStatus> {
   return request<DevFlowOrchestrationStatus>(`/projects/${projectId}/orchestration/status`);
+}
+
+export function getDevFlowOrchestrationRuns(projectId: string): Promise<DevFlowOrchestrationRun[]> {
+  return request<DevFlowOrchestrationRun[]>(`/projects/${projectId}/orchestration/runs`);
+}
+
+export function getDevFlowOrchestrationRun(projectId: string, runId: string): Promise<DevFlowOrchestrationRun> {
+  return request<DevFlowOrchestrationRun>(`/projects/${projectId}/orchestration/runs/${runId}`);
 }
 
 export function getDevFlowConversations(projectId: string): Promise<DevFlowConversation[]> {
@@ -1182,6 +1254,12 @@ export function removeDevFlowProjectMember(
 
 export function startDevFlowOrchestration(projectId: string): Promise<StartDevFlowOrchestrationResult> {
   return request<StartDevFlowOrchestrationResult>(`/projects/${projectId}/orchestration/start`, {
+    method: "POST",
+  });
+}
+
+export function rerunReadyDevFlowWorkOrders(projectId: string): Promise<StartDevFlowOrchestrationResult> {
+  return request<StartDevFlowOrchestrationResult>(`/projects/${projectId}/orchestration/rerun-ready`, {
     method: "POST",
   });
 }
