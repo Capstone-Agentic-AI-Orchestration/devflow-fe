@@ -5,12 +5,14 @@ import {
   getDevFlowProject,
   getDevFlowProjectArtifacts,
   getDevFlowProjectEvents,
+  getDevFlowOrchestrationProviderStatus,
   getDevFlowOrchestrationStatus,
   getDevFlowProjectTasks,
   getDevFlowProjectTimeline,
   getDevFlowProjectWorkOrders,
   getDevFlowCollaborationDocuments,
   listDevFlowProjects,
+  type DevFlowAgentProviderStatus,
   type DevFlowArtifact,
   type DevFlowCollaborationDocument,
   type DevFlowEventLog,
@@ -64,6 +66,38 @@ export function useDevFlowOrchestrationStatus(projectId?: string | null) {
     setError("");
     try {
       setStatus(await getDevFlowOrchestrationStatus(projectId));
+    } catch (nextError) {
+      setStatus(null);
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, [projectId]);
+
+  return { status, loading, error, refresh };
+}
+
+export function useDevFlowOrchestrationProviderStatus(projectId?: string | null) {
+  const [status, setStatus] = useState<DevFlowAgentProviderStatus | null>(null);
+  const [loading, setLoading] = useState(Boolean(projectId));
+  const [error, setError] = useState("");
+
+  const refresh = async () => {
+    if (!projectId) {
+      setStatus(null);
+      setLoading(false);
+      setError("");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      setStatus(await getDevFlowOrchestrationProviderStatus(projectId));
     } catch (nextError) {
       setStatus(null);
       setError(nextError instanceof Error ? nextError.message : String(nextError));

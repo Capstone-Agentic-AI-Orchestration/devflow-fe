@@ -6,7 +6,8 @@ import { Badge, Button, Card } from "@/shared/components/ui";
 import { IconArrowRight, IconCpu, IconFileText, IconRefresh, IconWorkflow } from "@/shared/components/icons";
 import { DevPageHeader } from "@/features/dev/shared/components/dev-page-header";
 import { BackendAwareRouteState } from "@/shared/components/backend-aware-route-state";
-import { useDevFlowOrchestrationStatus, useDevFlowProject, useDevFlowProjectOutputs, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
+import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { useDevFlowOrchestrationProviderStatus, useDevFlowOrchestrationStatus, useDevFlowProject, useDevFlowProjectOutputs, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
 import { useSelectedDevFlowProject } from "@/shared/projects/selected-project-context";
 import { compactDevFlowError, devflowLifecycleView, formatDevFlowDate, lifecycleProgressColor } from "@/shared/utils/devflow-projects";
 
@@ -15,11 +16,13 @@ export function DevOrchestratorView() {
   const { projects, selectedProject, selectedProjectId, selectedProjectLoading, selectedProjectError, refreshProjects } = useSelectedDevFlowProject();
   const outputs = useDevFlowProjectOutputs(selectedProjectId, { includeEvents: true, includeTasks: true, includeTimeline: true, includeWorkOrders: true });
   const orchestration = useDevFlowOrchestrationStatus(selectedProjectId);
+  const provider = useDevFlowOrchestrationProviderStatus(selectedProjectId);
   const lifecycle = devflowLifecycleView(selectedProject);
   const refresh = () => {
     refreshProjects();
     outputs.refresh();
     orchestration.refresh();
+    provider.refresh();
   };
 
   return (
@@ -68,10 +71,13 @@ export function DevOrchestratorView() {
           </Card>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14 }}>
+            <OrchestratorMetric icon={<IconCpu size={16} />} label="Provider" value={provider.loading ? "..." : provider.status?.activeMode?.toUpperCase() || "Unknown"} sub={provider.error || provider.status?.reason || (provider.status?.available ? "Ready" : "Not ready")} />
             <OrchestratorMetric icon={<IconCpu size={16} />} label="Run status" value={orchestration.loading ? "..." : orchestration.status?.status || "Not started"} sub={orchestration.status?.currentNode || selectedProject.runId || "No run id"} />
             <OrchestratorMetric icon={<IconWorkflow size={16} />} label="Work orders" value={outputs.loading ? "..." : String(outputs.workOrders.length)} sub={`${outputs.workOrders.filter((item) => item.status === "DISPATCHED").length} dispatched`} />
             <OrchestratorMetric icon={<IconFileText size={16} />} label="Artifacts" value={outputs.loading ? "..." : String(outputs.artifacts.length)} sub={`${outputs.artifacts.filter((item) => item.clientVisible).length} client-visible`} />
           </div>
+
+          <OrchestrationProviderStatusPanel status={provider.status} loading={provider.loading} error={provider.error ? compactDevFlowError(provider.error) : ""} />
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 18 }}>
             <Card style={{ padding: 0, overflow: "hidden" }}>

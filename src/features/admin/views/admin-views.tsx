@@ -1,8 +1,11 @@
 // @ts-nocheck
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, Input, Textarea } from "@/shared/components/ui";
+import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { useDevFlowOrchestrationProviderStatus, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
+import { compactDevFlowError } from "@/shared/utils/devflow-projects";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -177,14 +180,81 @@ export function AdminCostView() {
 }
 
 export function AdminProvidersView() {
+  const projectsState = useDevFlowProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const selectedProject = projectsState.projects.find((project) => project.id === selectedProjectId) || projectsState.projects[0] || null;
+  const effectiveProjectId = selectedProject?.id || "";
+  const provider = useDevFlowOrchestrationProviderStatus(effectiveProjectId);
+
+  useEffect(() => {
+    if (!selectedProjectId && projectsState.projects[0]?.id) setSelectedProjectId(projectsState.projects[0].id);
+  }, [projectsState.projects, selectedProjectId]);
+
+  const refresh = () => {
+    projectsState.refresh();
+    provider.refresh();
+  };
+
   return (
     <div data-screen-label="Admin - Providers">
-      <AdminPageHeader title="AI Providers" subtitle="Provider credentials, quotas, fallbacks, and model routing." actions={<Button variant="primary" size="sm" icon={<IconDatabase size={13} />}>Add provider</Button>} />
+      <AdminPageHeader title="AI Providers" subtitle="Backend provider selection, adapter readiness, and missing runtime requirements." actions={<Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={refresh}>Refresh</Button>} />
+
+      <Card style={{ padding: 20, marginBottom: 18 }}>
+        <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ minWidth: 260, flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Project-scoped provider check</div>
+            <div style={{ color: "var(--text-3)", fontSize: 12, marginTop: 4 }}>Provider status is protected by project access and reflects the backend orchestration runtime.</div>
+          </div>
+          <Field label="Project">
+            <select className="input select" value={effectiveProjectId} onChange={(event) => setSelectedProjectId(event.target.value)} style={{ minWidth: 280 }}>
+              {projectsState.projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.companyName}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {projectsState.error && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 10 }}>{compactDevFlowError(projectsState.error)}</div>}
+        {!projectsState.loading && !selectedProject ? (
+          <div style={{ color: "var(--text-3)", fontSize: 13, marginTop: 14 }}>No backend projects are available for provider inspection.</div>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+            <OrchestrationProviderStatusPanel status={provider.status} loading={projectsState.loading || provider.loading} error={provider.error ? compactDevFlowError(provider.error) : ""} />
+          </div>
+        )}
+      </Card>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-        {PROVIDER_HEALTH.map((provider) => <Card key={provider.name} style={{ padding: 20 }}><div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}><div><h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{provider.name}</h3><div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 4 }}>{provider.models.join(", ")}</div></div><StatusPill state={provider.status} /></div><div style={{ height: 7, borderRadius: 999, background: "rgba(8,14,32,.7)", marginBottom: 12 }}><div style={{ width: `${provider.quota}%`, height: "100%", borderRadius: 999, background: provider.color }} /></div><div className="row" style={{ justifyContent: "space-between", color: "var(--text-3)", fontSize: 12 }}><span>Latency {provider.latency}</span><span>Error {provider.errorRate}</span></div><div className="row gap-2" style={{ marginTop: 16 }}><Button variant="secondary" size="sm">Rotate key</Button><Button variant="ghost" size="sm">Configure fallback</Button></div></Card>)}
+        {(provider.status?.providers || []).map((providerItem) => (
+          <Card key={providerItem.mode} style={{ padding: 20 }}>
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 14, gap: 12 }}>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{providerItem.displayName}</h3>
+                <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 4 }}>{providerItem.mode.toUpperCase()} adapter</div>
+              </div>
+              <Badge tone={providerItem.available ? "green" : providerItem.implemented ? "amber" : "gray"}>{providerItem.active ? "Active" : providerItem.available ? "Ready" : "Unavailable"}</Badge>
+            </div>
+            <div style={{ color: "var(--text-2)", fontSize: 12.5, lineHeight: 1.5, minHeight: 38 }}>{providerItem.reason || "Provider can execute orchestration work orders."}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+              <ProviderStatusFact label="Implemented" value={providerItem.implemented ? "Yes" : "No"} />
+              <ProviderStatusFact label="Available" value={providerItem.available ? "Yes" : "No"} />
+            </div>
+            {providerItem.missingRequirements?.length ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 }}>
+                {providerItem.missingRequirements.map((requirement) => <Badge key={requirement} tone="amber">{requirement}</Badge>)}
+              </div>
+            ) : null}
+          </Card>
+        ))}
+        {!provider.loading && !provider.status?.providers?.length && (
+          <Card style={{ padding: 20, color: "var(--text-3)" }}>Provider adapters appear after selecting an accessible backend project.</Card>
+        )}
       </div>
     </div>
   );
+}
+
+function ProviderStatusFact({ label, value }) {
+  return <div style={{ padding: 10, border: "1px solid var(--border)", borderRadius: 8, background: "rgba(8,14,32,.45)" }}><div style={{ color: "var(--text-3)", fontSize: 11 }}>{label}</div><div style={{ color: "white", fontWeight: 800, fontSize: 13, marginTop: 3 }}>{value}</div></div>;
 }
 
 export function AdminUsersView() {

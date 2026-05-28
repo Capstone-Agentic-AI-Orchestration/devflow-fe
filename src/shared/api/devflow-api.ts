@@ -78,6 +78,8 @@ export type DevFlowWorkOrderStatus = "DRAFT" | "READY" | "DISPATCHED" | "COMPLET
 
 export type DevFlowWorkOrderPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
 
+export type DevFlowAgentProviderMode = "mock" | "llm";
+
 export type DevFlowProjectTaskActivityType =
   | "TASK_CREATED"
   | "STATUS_CHANGED"
@@ -477,6 +479,26 @@ export interface DevFlowOrchestrationRun {
   updatedAt: string;
   executions: DevFlowWorkOrderExecution[];
   events?: DevFlowEventLog[];
+}
+
+export interface DevFlowAgentProviderCapability {
+  mode: DevFlowAgentProviderMode;
+  displayName: string;
+  active: boolean;
+  available: boolean;
+  implemented: boolean;
+  missingRequirements: string[];
+  reason: string | null;
+}
+
+export interface DevFlowAgentProviderStatus {
+  requestedMode: DevFlowAgentProviderMode;
+  activeMode: DevFlowAgentProviderMode;
+  available: boolean;
+  fallbackMode: DevFlowAgentProviderMode | null;
+  missingRequirements: string[];
+  reason: string | null;
+  providers: DevFlowAgentProviderCapability[];
 }
 
 export interface DevFlowNotification {
@@ -1162,6 +1184,10 @@ export function getDevFlowOrchestrationRuns(projectId: string): Promise<DevFlowO
 
 export function getDevFlowOrchestrationRun(projectId: string, runId: string): Promise<DevFlowOrchestrationRun> {
   return request<DevFlowOrchestrationRun>(`/projects/${projectId}/orchestration/runs/${runId}`);
+}
+
+export function getDevFlowOrchestrationProviderStatus(projectId: string): Promise<DevFlowAgentProviderStatus> {
+  return request<DevFlowAgentProviderStatus>(`/projects/${projectId}/orchestration/provider`);
 }
 
 export function getDevFlowConversations(projectId: string): Promise<DevFlowConversation[]> {

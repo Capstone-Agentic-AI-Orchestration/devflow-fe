@@ -7,6 +7,7 @@ import { AgentLiveStrip } from "@/features/pm/shared/components/pm-agent-live-st
 import { PMPageHeader } from "@/features/pm/shared/components/pm-page-header";
 import { Badge, Button, Card, Field, Input, Select, Tabs, Textarea } from "@/shared/components/ui";
 import { DevFlowProjectTimeline } from "@/shared/components/project-timeline/devflow-project-timeline";
+import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -72,7 +73,7 @@ import {
   updateDevFlowProjectTask,
   updateDevFlowWorkOrder,
 } from "@/shared/api/devflow-api";
-import { useDevFlowOrchestrationStatus, useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
+import { useDevFlowOrchestrationProviderStatus, useDevFlowOrchestrationStatus, useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
 
 export function PMProjectDetailView({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -146,6 +147,7 @@ function BackendProjectDetail({ project, onBack }) {
   const [tab, setTab] = useState(project.kickoff?.status === "READY" || project.runId ? "overview" : "kickoff");
   const outputs = useDevFlowProjectOutputs(detail.id, { includeEvents: true, includeTasks: true, includeTimeline: true, includeWorkOrders: true });
   const orchestration = useDevFlowOrchestrationStatus(detail.id);
+  const provider = useDevFlowOrchestrationProviderStatus(detail.id);
   const [orchestrationRuns, setOrchestrationRuns] = useState([]);
   const [orchestrationRunsLoading, setOrchestrationRunsLoading] = useState(false);
   const [orchestrationRunsError, setOrchestrationRunsError] = useState("");
@@ -184,7 +186,8 @@ function BackendProjectDetail({ project, onBack }) {
   const managerIds = projectManagerIds(detail);
   const readyExecutableWorkOrders = outputs.workOrders.filter((workOrder) => workOrder.status === "READY" && workOrder.instructions?.trim());
   const orchestrationBlockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
-  const canStartOrchestration = orchestrationBlockers.length === 0 && !detail.runId && !starting;
+  const providerActionBlocked = provider.loading || provider.error || (provider.status && !provider.status.available);
+  const canStartOrchestration = orchestrationBlockers.length === 0 && !detail.runId && !starting && !providerActionBlocked;
 
   const refreshOrchestrationRuns = async () => {
     setOrchestrationRunsLoading(true);
@@ -323,6 +326,15 @@ function BackendProjectDetail({ project, onBack }) {
 
   const startRun = async () => {
     const blockers = orchestrationReadinessBlockers(detail, outputs.workOrders, outputs.loading);
+    const providerBlocker = provider.error || (provider.status && !provider.status.available ? provider.status.reason : "");
+    if (provider.loading) {
+      setError("Wait for the agent provider check to finish before starting orchestration.");
+      return;
+    }
+    if (providerBlocker) {
+      setError(providerBlocker);
+      return;
+    }
     if (blockers.length && !detail.runId) {
       setError(blockers[0]);
       setTab(blockers[0].includes("work order") ? "work-orders" : "kickoff");
@@ -335,7 +347,7 @@ function BackendProjectDetail({ project, onBack }) {
       await startDevFlowOrchestration(detail.id);
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), provider.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
       setTab("overview");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -357,7 +369,7 @@ function BackendProjectDetail({ project, onBack }) {
       await rerunReadyDevFlowWorkOrders(detail.id);
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), provider.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -487,6 +499,9 @@ function BackendProjectDetail({ project, onBack }) {
               status={orchestration.status}
               statusLoading={orchestration.loading}
               statusError={orchestration.error}
+              providerStatus={provider.status}
+              providerLoading={provider.loading}
+              providerError={provider.error}
               workOrders={outputs.workOrders}
               artifacts={outputs.artifacts}
               events={outputs.events}
@@ -501,7 +516,7 @@ function BackendProjectDetail({ project, onBack }) {
               onRetryFailedWorkOrder={retryFailedWorkOrder}
               onRefresh={async () => {
                 setDetail(await getDevFlowProject(detail.id));
-                await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
+                await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), provider.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
               }}
             />
           </div>
@@ -734,7 +749,7 @@ function BackendProjectDetail({ project, onBack }) {
   );
 }
 
-function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onRefresh }) {
+function BackendOrchestrationPanel({ detail, status, statusLoading, statusError, providerStatus, providerLoading, providerError, workOrders, artifacts, events, runs, runsLoading, runsError, blockers, starting, actionId, onStart, onRerunReady, onRetryFailedWorkOrder, onRefresh }) {
   const readyWorkOrders = workOrders.filter((workOrder) => workOrder.status === "READY");
   const executableWorkOrders = readyWorkOrders.filter((workOrder) => workOrder.instructions?.trim());
   const failedWorkOrders = workOrders.filter((workOrder) => workOrder.status === "FAILED");
@@ -744,22 +759,25 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
   const statusView = backendStatusBits(status?.status || detail.status);
   const currentNode = status?.currentNode && status.currentNode !== "none" ? status.currentNode : detail.runId || "No active node";
   const latestRun = runs?.[0];
+  const providerUnavailable = !providerLoading && (providerError || (providerStatus && !providerStatus.available));
+  const actionBlocked = blockers.length > 0 || Boolean(providerUnavailable);
+  const activeProviderLabel = providerStatus?.activeMode === "llm" ? "LLM" : providerStatus?.activeMode === "mock" ? "Mock" : "Agent";
 
   return (
     <Card style={{ padding: 22 }}>
       <div className="row" style={{ justifyContent: "space-between", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <SectionTitle
-          title="Mock-provider orchestration"
-          subtitle="Local LangGraph agents execute READY work orders and send generated artifacts to PM review."
+          title={`${activeProviderLabel}-provider orchestration`}
+          subtitle="Selected agents execute READY work orders and send generated artifacts to PM review."
           icon={<IconCpu size={16} />}
         />
         <div className="row gap-2" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={onRefresh}>Refresh</Button>
-          <Button variant="secondary" size="sm" icon={<IconRocket size={13} />} onClick={onRerunReady} disabled={actionId === "rerun-ready" || blockers.length > 0 || executableWorkOrders.length === 0}>
+          <Button variant="secondary" size="sm" icon={<IconRocket size={13} />} onClick={onRerunReady} disabled={actionId === "rerun-ready" || actionBlocked || executableWorkOrders.length === 0}>
             {actionId === "rerun-ready" ? "Queuing..." : "Rerun READY"}
           </Button>
-          <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={onStart} disabled={starting || Boolean(detail.runId) || blockers.length > 0}>
-            {detail.runId ? "Run started" : starting ? "Starting..." : "Start mock run"}
+          <Button variant="primary" size="sm" icon={<IconPlay size={13} />} onClick={onStart} disabled={starting || Boolean(detail.runId) || actionBlocked}>
+            {detail.runId ? "Run started" : starting ? "Starting..." : `Start ${activeProviderLabel.toLowerCase()} run`}
           </Button>
         </div>
       </div>
@@ -767,7 +785,16 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
       {statusError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(statusError)}</div>}
       {runsError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(runsError)}</div>}
 
+      <div style={{ marginTop: 14 }}>
+        <OrchestrationProviderStatusPanel
+          status={providerStatus}
+          loading={providerLoading}
+          error={providerError ? compactBackendError(providerError) : ""}
+        />
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 14 }}>
+        <OrchestrationFact label="Agent provider" value={providerLoading ? "Checking..." : activeProviderLabel} tone={providerStatus?.available ? "green" : "amber"} />
         <OrchestrationFact label="Run status" value={statusLoading ? "Checking..." : statusView.label} tone={statusView.tone} />
         <OrchestrationFact label="Current node" value={currentNode} tone="purple" mono />
         <OrchestrationFact label="Run history" value={runsLoading ? "Loading..." : String(runs?.length || 0)} tone={runs?.length ? "blue" : "gray"} />
@@ -812,8 +839,14 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         </div>
       )}
 
-      {blockers.length > 0 && !detail.runId ? (
+      {(blockers.length > 0 || providerUnavailable) && !detail.runId ? (
         <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+          {providerUnavailable && (
+            <div className="row gap-2" style={{ padding: 10, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
+              <IconAlertTriangle size={13} style={{ color: "#FBBF24", flexShrink: 0 }} />
+              <span>{compactBackendError(providerError) || providerStatus?.reason || "The selected agent provider is not available."}</span>
+            </div>
+          )}
           {blockers.map((blocker) => (
             <div key={blocker} className="row gap-2" style={{ padding: 10, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
               <IconAlertTriangle size={13} style={{ color: "#FBBF24", flexShrink: 0 }} />
@@ -823,7 +856,11 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         </div>
       ) : (
         <div style={{ marginTop: 14, padding: 10, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
-          {detail.runId ? "This project already has an orchestration run. Review generated artifacts and publish approved outputs when ready." : "This project can start the local mock-provider orchestration run."}
+          {providerUnavailable
+            ? compactBackendError(providerError) || providerStatus?.reason || "The selected agent provider is not available."
+            : detail.runId
+              ? "This project already has an orchestration run. Review generated artifacts and publish approved outputs when ready."
+              : `This project can start the ${activeProviderLabel.toLowerCase()} provider orchestration run.`}
         </div>
       )}
 
