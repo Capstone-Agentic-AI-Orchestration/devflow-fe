@@ -589,6 +589,39 @@ export interface DevFlowProjectDeliveryReviewInput {
   note?: string;
 }
 
+export interface DevFlowDeliveryReadinessBlocker {
+  code: string;
+  message: string;
+  severity: "BLOCKER" | "WARNING";
+  count?: number;
+}
+
+export interface DevFlowDeliveryReadiness {
+  ready: boolean;
+  projectId: string;
+  blockers: DevFlowDeliveryReadinessBlocker[];
+  checks: {
+    acceptedInvite: boolean;
+    hasPublishedArtifacts: boolean;
+    publishedArtifactsValidated: boolean;
+    publishedArtifactsApproved: boolean;
+    requiredAgentCoverage: boolean;
+    documentsCleared: boolean;
+    workOrdersCleared: boolean;
+    revisionsCleared: boolean;
+    deliveryRevisionCleared: boolean;
+  };
+  counts: {
+    publishedArtifacts: number;
+    invalidPublishedArtifacts: number;
+    unapprovedPublishedArtifacts: number;
+    activeWorkOrders: number;
+    openDocuments: number;
+    openArtifactRevisions: number;
+    missingAgentTypes: number;
+  };
+}
+
 export interface DevFlowProjectDetail extends DevFlowProjectSummary {
   brief: string;
   stackKey: string;
@@ -973,6 +1006,10 @@ export function publishDevFlowArtifactOutput(
 
 export function getDevFlowProjectDeliveryReview(projectId: string): Promise<DevFlowProjectDeliveryReview | null> {
   return request<DevFlowProjectDeliveryReview | null>(`/projects/${projectId}/delivery-review`);
+}
+
+export function getDevFlowDeliveryReadiness(projectId: string): Promise<DevFlowDeliveryReadiness> {
+  return request<DevFlowDeliveryReadiness>(`/projects/${projectId}/delivery-readiness`);
 }
 
 export function acceptDevFlowProjectDelivery(

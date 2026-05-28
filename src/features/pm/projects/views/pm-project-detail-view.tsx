@@ -52,6 +52,7 @@ import {
   createDevFlowProjectTask,
   createDevFlowWorkOrder,
   dispatchDevFlowWorkOrder,
+  getDevFlowDeliveryReadiness,
   getDevFlowOrchestrationRuns,
   getDevFlowProjectTaskActivity,
   getDevFlowProject,
@@ -148,6 +149,9 @@ function BackendProjectDetail({ project, onBack }) {
   const [orchestrationRuns, setOrchestrationRuns] = useState([]);
   const [orchestrationRunsLoading, setOrchestrationRunsLoading] = useState(false);
   const [orchestrationRunsError, setOrchestrationRunsError] = useState("");
+  const [deliveryReadiness, setDeliveryReadiness] = useState(null);
+  const [deliveryReadinessLoading, setDeliveryReadinessLoading] = useState(false);
+  const [deliveryReadinessError, setDeliveryReadinessError] = useState("");
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [orchestrationAction, setOrchestrationAction] = useState("");
@@ -191,6 +195,19 @@ function BackendProjectDetail({ project, onBack }) {
       setOrchestrationRunsError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
       setOrchestrationRunsLoading(false);
+    }
+  };
+
+  const refreshDeliveryReadiness = async () => {
+    setDeliveryReadinessLoading(true);
+    setDeliveryReadinessError("");
+    try {
+      setDeliveryReadiness(await getDevFlowDeliveryReadiness(detail.id));
+    } catch (nextError) {
+      setDeliveryReadiness(null);
+      setDeliveryReadinessError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setDeliveryReadinessLoading(false);
     }
   };
 
@@ -238,6 +255,7 @@ function BackendProjectDetail({ project, onBack }) {
 
   useEffect(() => {
     refreshOrchestrationRuns();
+    refreshDeliveryReadiness();
   }, [detail.id]);
 
   const saveProject = async () => {
@@ -317,7 +335,7 @@ function BackendProjectDetail({ project, onBack }) {
       await startDevFlowOrchestration(detail.id);
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
       setTab("overview");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -339,7 +357,7 @@ function BackendProjectDetail({ project, onBack }) {
       await rerunReadyDevFlowWorkOrders(detail.id);
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       setDetail(await getDevFlowProject(detail.id));
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -352,7 +370,7 @@ function BackendProjectDetail({ project, onBack }) {
     setError("");
     try {
       await retryDevFlowWorkOrder(detail.id, workOrderId);
-      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+      await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -454,10 +472,14 @@ function BackendProjectDetail({ project, onBack }) {
             </div>
             <BackendDeliveryReviewPanel
               review={detail.deliveryReview}
+              readiness={deliveryReadiness}
+              readinessLoading={deliveryReadinessLoading}
+              readinessError={deliveryReadinessError}
+              onRefreshReadiness={refreshDeliveryReadiness}
               onResolve={async (note) => {
                 await resolveDevFlowProjectDeliveryRevision(detail.id, { note });
                 setDetail(await getDevFlowProject(detail.id));
-                await outputs.refresh?.();
+                await Promise.all([outputs.refresh?.(), refreshDeliveryReadiness()]);
               }}
             />
             <BackendOrchestrationPanel
@@ -479,7 +501,7 @@ function BackendProjectDetail({ project, onBack }) {
               onRetryFailedWorkOrder={retryFailedWorkOrder}
               onRefresh={async () => {
                 setDetail(await getDevFlowProject(detail.id));
-                await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns()]);
+                await Promise.all([outputs.refresh?.(), orchestration.refresh?.(), refreshOrchestrationRuns(), refreshDeliveryReadiness()]);
               }}
             />
           </div>
@@ -494,7 +516,7 @@ function BackendProjectDetail({ project, onBack }) {
             error={outputs.error}
             onChanged={async () => {
               setDetail(await getDevFlowProject(detail.id));
-              await outputs.refresh?.();
+              await Promise.all([outputs.refresh?.(), refreshDeliveryReadiness()]);
             }}
           />
         )}
@@ -599,7 +621,9 @@ function BackendProjectDetail({ project, onBack }) {
             members={detail.members}
             loading={outputs.loading}
             error={outputs.error}
-            onChanged={outputs.refresh}
+            onChanged={async () => {
+              await Promise.all([outputs.refresh?.(), refreshDeliveryReadiness()]);
+            }}
           />
         )}
 
@@ -611,7 +635,9 @@ function BackendProjectDetail({ project, onBack }) {
             artifacts={outputs.artifacts}
             loading={outputs.loading}
             error={outputs.error}
-            onChanged={outputs.refresh}
+            onChanged={async () => {
+              await Promise.all([outputs.refresh?.(), refreshDeliveryReadiness()]);
+            }}
           />
         )}
 
@@ -1569,11 +1595,14 @@ function WorkOrderPriorityBadge({ priority }) {
   return <Badge tone={item.tone}>{item.label}</Badge>;
 }
 
-function BackendDeliveryReviewPanel({ review, onResolve }) {
+function BackendDeliveryReviewPanel({ review, readiness, readinessLoading, readinessError, onRefreshReadiness, onResolve }) {
   const [note, setNote] = useState(review?.resolutionNote || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const status = deliveryReviewStatusView(review?.status);
+  const readinessStatus = readiness?.ready
+    ? { tone: "green", label: "Ready" }
+    : { tone: "amber", label: readinessLoading ? "Checking" : "Blocked" };
 
   const resolveRevision = async () => {
     setSaving(true);
@@ -1591,8 +1620,38 @@ function BackendDeliveryReviewPanel({ review, onResolve }) {
     <Card style={{ padding: 22 }}>
       <div className="row" style={{ justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         <SectionTitle title="Delivery review" subtitle="Project-level acceptance and revision state" />
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <div className="row gap-2">
+          <Badge tone={readinessStatus.tone}>{readinessStatus.label}</Badge>
+          <Badge tone={status.tone}>{status.label}</Badge>
+          <Button variant="secondary" size="sm" icon={<IconRefresh size={13} />} onClick={onRefreshReadiness} disabled={readinessLoading}>
+            {readinessLoading ? "Checking..." : "Refresh"}
+          </Button>
+        </div>
       </div>
+
+      {readinessError && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 12 }}>{compactBackendError(readinessError)}</div>}
+      {readiness && (
+        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: 10 }}>
+            <MiniStat label="Published artifacts" value={String(readiness.counts.publishedArtifacts)} />
+            <MiniStat label="Open work orders" value={String(readiness.counts.activeWorkOrders)} />
+            <MiniStat label="Open documents" value={String(readiness.counts.openDocuments)} />
+            <MiniStat label="Missing coverage" value={String(readiness.counts.missingAgentTypes)} />
+          </div>
+          {readiness.blockers.length > 0 ? (
+            <div style={{ padding: 12, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 10 }}>
+              <div style={{ color: "white", fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Acceptance blockers</div>
+              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--text-2)", fontSize: 12.5, lineHeight: 1.55 }}>
+                {readiness.blockers.map((blocker) => <li key={blocker.code}>{blocker.message}</li>)}
+              </ul>
+            </div>
+          ) : (
+            <div style={{ padding: 12, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.07)", borderRadius: 10, color: "var(--text-2)", fontSize: 12.5 }}>
+              Final delivery is ready for client acceptance.
+            </div>
+          )}
+        </div>
+      )}
 
       {!review ? (
         <div style={{ color: "var(--text-3)", fontSize: 13, marginTop: 12 }}>No project-level delivery review has been submitted yet.</div>

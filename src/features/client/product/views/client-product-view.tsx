@@ -1,11 +1,11 @@
 // @ts-nocheck
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, Modal, Textarea } from "@/shared/components/ui";
 import { ClientPageHeader } from "@/features/client/shared/components/client-page-header";
 import { IconAlertTriangle, IconCalendar, IconCheck, IconCheckCircle, IconCircle, IconCode, IconDatabase, IconDownload, IconExternalLink, IconGitBranch, IconMessageCircle, IconMonitor, IconRefresh, IconShield, IconSmartphone, IconTablet } from "@/shared/components/icons";
-import { acceptDevFlowProjectDelivery, requestDevFlowProjectDeliveryRevision, reviewDevFlowArtifact } from "@/shared/api/devflow-api";
+import { acceptDevFlowProjectDelivery, getDevFlowDeliveryReadiness, requestDevFlowProjectDeliveryRevision, reviewDevFlowArtifact } from "@/shared/api/devflow-api";
 import { useDevFlowProjectOutputs } from "@/shared/hooks/use-devflow-projects";
 import { useSelectedDevFlowProject } from "@/shared/projects/selected-project-context";
 import { compactDevFlowError, devflowLifecycleView, formatDevFlowDate, lifecycleProgressColor } from "@/shared/utils/devflow-projects";
@@ -17,6 +17,9 @@ export function ClientProductView() {
   const [deliveryNote, setDeliveryNote] = useState("");
   const [deliveryError, setDeliveryError] = useState("");
   const [deliverySaving, setDeliverySaving] = useState(false);
+  const [deliveryReadiness, setDeliveryReadiness] = useState(null);
+  const [deliveryReadinessLoading, setDeliveryReadinessLoading] = useState(false);
+  const [deliveryReadinessError, setDeliveryReadinessError] = useState("");
   const { selectedProject, selectedProjectLoading, selectedProjectError, refreshProjects, refreshSelectedProject } = useSelectedDevFlowProject();
   const outputs = useDevFlowProjectOutputs(selectedProject?.id, { includeDocuments: true, includeEvents: true });
   const lifecycle = devflowLifecycleView(selectedProject);
@@ -26,10 +29,67 @@ export function ClientProductView() {
   const sharedDocuments = outputs.documents.filter((document) => document.clientVisible);
   const deliveryReview = selectedProject?.deliveryReview;
   const deliveryBlockers = selectedProject
-    ? clientDeliveryBlockers(selectedProject, sharedArtifacts, sharedDocuments)
+    ? deliveryReadiness
+      ? deliveryReadiness.blockers.filter((blocker) => blocker.severity === "BLOCKER").map((blocker) => blocker.message)
+      : deliveryReadinessError
+        ? [`Delivery readiness could not be verified: ${compactDevFlowError(deliveryReadinessError)}`]
+        : clientDeliveryBlockers(selectedProject, sharedArtifacts, sharedDocuments)
     : [];
+
+  const refreshDeliveryReadiness = async () => {
+    if (!selectedProject?.id) {
+      setDeliveryReadiness(null);
+      return;
+    }
+
+    setDeliveryReadinessLoading(true);
+    setDeliveryReadinessError("");
+    try {
+      setDeliveryReadiness(await getDevFlowDeliveryReadiness(selectedProject.id));
+    } catch (nextError) {
+      setDeliveryReadiness(null);
+      setDeliveryReadinessError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setDeliveryReadinessLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    if (!selectedProject?.id) {
+      setDeliveryReadiness(null);
+      setDeliveryReadinessError("");
+      setDeliveryReadinessLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setDeliveryReadinessLoading(true);
+    setDeliveryReadinessError("");
+    getDevFlowDeliveryReadiness(selectedProject.id)
+      .then((readiness) => {
+        if (!active) return;
+        setDeliveryReadiness(readiness);
+      })
+      .catch((nextError) => {
+        if (!active) return;
+        setDeliveryReadiness(null);
+        setDeliveryReadinessError(nextError instanceof Error ? nextError.message : String(nextError));
+      })
+      .finally(() => {
+        if (!active) return;
+        setDeliveryReadinessLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedProject?.id]);
+
   const refresh = async () => {
-    await Promise.all([refreshProjects(), refreshSelectedProject?.(), outputs.refresh()]);
+    await Promise.all([refreshProjects(), refreshSelectedProject?.(), outputs.refresh(), refreshDeliveryReadiness()]);
   };
 
   const acceptDelivery = async () => {
@@ -115,6 +175,22 @@ export function ClientProductView() {
             <p style={{ color: "var(--text-2)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 18, maxWidth: 580 }}>Once you&apos;re happy with the build, accept delivery to trigger final production deploy and start your support window.</p>
             {deliveryReview?.revisionNote && <div style={{ padding: 12, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 10, color: "var(--text-2)", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>{deliveryReview.revisionNote}</div>}
             {deliveryReview?.resolutionNote && <div style={{ padding: 12, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.07)", borderRadius: 10, color: "var(--text-2)", fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>{deliveryReview.resolutionNote}</div>}
+            <div className="row" style={{ justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <Badge tone={deliveryReadiness?.ready ? "green" : deliveryReadinessLoading ? "blue" : "amber"}>
+                {deliveryReadiness?.ready ? "Ready for acceptance" : deliveryReadinessLoading ? "Checking readiness" : "Acceptance blocked"}
+              </Badge>
+              <Button variant="secondary" size="sm" icon={<IconRefresh size={14} />} onClick={refreshDeliveryReadiness} disabled={deliveryReadinessLoading}>
+                {deliveryReadinessLoading ? "Checking..." : "Check readiness"}
+              </Button>
+            </div>
+            {deliveryReadiness && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))", gap: 10, marginBottom: 14 }}>
+                <DeliveryMetric label="Artifacts" value={deliveryReadiness.counts.publishedArtifacts} />
+                <DeliveryMetric label="Work orders" value={deliveryReadiness.counts.activeWorkOrders} />
+                <DeliveryMetric label="Documents" value={deliveryReadiness.counts.openDocuments} />
+                <DeliveryMetric label="Coverage gaps" value={deliveryReadiness.counts.missingAgentTypes} />
+              </div>
+            )}
             {deliveryBlockers.length > 0 && (
               <div style={{ padding: 12, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 10, color: "var(--text-2)", fontSize: 12.5, lineHeight: 1.55, marginBottom: 14 }}>
                 <strong style={{ color: "white" }}>Delivery acceptance is blocked.</strong>
@@ -317,6 +393,11 @@ function DeliveryReviewBadge({ review }) {
 
 function ApprovalButton({ tint, icon, title, sub, onClick, primary, disabled }) {
   return <button onClick={onClick} disabled={disabled} style={{ padding: "16px 18px", textAlign: "left", background: primary ? `linear-gradient(135deg, ${tint}26, ${tint}10)` : "rgba(8,14,32,.5)", border: `1px solid ${primary ? `${tint}55` : "var(--border)"}`, borderRadius: 14, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? .62 : 1, color: "white", fontFamily: "inherit", display: "flex", alignItems: "flex-start", gap: 14 }}><div style={{ width: 36, height: 36, borderRadius: 10, background: `${tint}22`, color: tint, display: "grid", placeItems: "center", flexShrink: 0 }}>{icon}</div><div><div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div><div style={{ color: "var(--text-3)", fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>{sub}</div></div></button>;
+}
+
+function DeliveryMetric({ label, value }) {
+  const done = Number(value || 0) === 0 && label !== "Artifacts";
+  return <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, background: "rgba(8,14,32,.45)" }}><div style={{ color: "var(--text-3)", fontSize: 11.5 }}>{label}</div><div className="mono" style={{ color: done ? "#6EE7B7" : "white", fontWeight: 700, marginTop: 3 }}>{value}</div></div>;
 }
 
 function DeliverableCheck({ label, done, inProgress, last }) {
