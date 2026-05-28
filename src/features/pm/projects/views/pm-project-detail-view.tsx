@@ -764,6 +764,7 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
   const githubDeliveryUnavailable = providerStatus?.activeMode === "llm" && githubDelivery && !githubDelivery.available;
   const actionBlocked = blockers.length > 0 || Boolean(providerUnavailable) || Boolean(githubDeliveryUnavailable);
   const activeProviderLabel = providerStatus?.activeMode === "llm" ? "LLM" : providerStatus?.activeMode === "mock" ? "Mock" : "Agent";
+  const autopushView = githubAutopushStatus(detail, githubDelivery, providerStatus?.activeMode);
 
   return (
     <Card style={{ padding: 22 }}>
@@ -799,6 +800,7 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         <OrchestrationFact label="Agent provider" value={providerLoading ? "Checking..." : activeProviderLabel} tone={providerStatus?.available ? "green" : "amber"} />
         <OrchestrationFact label="GitHub delivery" value={githubDelivery ? (githubDelivery.available ? githubDelivery.owner || "Ready" : "Setup needed") : "Checking..."} tone={githubDelivery?.available ? "green" : "amber"} />
         <OrchestrationFact label="Repository" value={detail.repoUrl || "Not linked"} tone={detail.repoUrl ? "green" : "gray"} mono />
+        <OrchestrationFact label="Autopush" value={autopushView.label} tone={autopushView.tone} />
         <OrchestrationFact label="Run status" value={statusLoading ? "Checking..." : statusView.label} tone={statusView.tone} />
         <OrchestrationFact label="Current node" value={currentNode} tone="purple" mono />
         <OrchestrationFact label="Run history" value={runsLoading ? "Loading..." : String(runs?.length || 0)} tone={runs?.length ? "blue" : "gray"} />
@@ -2337,6 +2339,21 @@ function backendStatusBits(status) {
   };
 
   return map[status] || { label: status || "Unknown", tone: "gray" };
+}
+
+function githubAutopushStatus(detail, githubDelivery, activeMode) {
+  if (detail.repoUrl) return { label: "Pushed to GitHub", tone: "green" };
+  if (detail.status === "DELIVERED") return { label: "Delivered, repo missing", tone: "red" };
+  if (detail.status === "COMMITTING") return { label: "Pushing now", tone: "blue" };
+  if (detail.status === "AWAITING_GATE_2") return { label: "Waiting for Gate 2", tone: "amber" };
+  if (activeMode === "llm" && githubDelivery && !githubDelivery.available) {
+    return { label: "Blocked by setup", tone: "red" };
+  }
+  if (activeMode === "llm" && githubDelivery?.available) {
+    return { label: "Ready after Gate 2", tone: "green" };
+  }
+  if (detail.runId) return { label: "Run in progress", tone: "blue" };
+  return { label: "Not started", tone: "gray" };
 }
 
 function compactBackendError(message) {
