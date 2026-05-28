@@ -1543,12 +1543,21 @@ function BackendArtifactsPanel({ projectId, artifacts, tasks, members, loading, 
           : "",
       ].filter(Boolean).join("\n\n");
 
-      await createDevFlowProjectTask(projectId, {
+      const task = await createDevFlowProjectTask(projectId, {
         title: `Revision: ${artifactLabel}`,
         description: notes,
         assignedToId: revisionTaskAssigneeId,
         artifactId: preview.id,
       });
+      const workOrder = await createDevFlowWorkOrder(projectId, {
+        title: `Revision handoff: ${artifactLabel}`,
+        instructions: notes,
+        agentType: workOrderAgentTypeFromArtifact(preview.agentType),
+        priority: "HIGH",
+        taskId: task.id,
+        artifactId: preview.id,
+      });
+      await updateDevFlowWorkOrder(projectId, workOrder.id, { status: "READY" });
       await onChanged?.();
     } catch (nextError) {
       setPreviewError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1859,7 +1868,7 @@ function ArtifactPreviewModal({ open, onClose, artifact, loading, error, sharing
                   {artifact.reviewNote || "Client requested a revision for this artifact."}
                 </div>
                 <Button variant="primary" size="sm" icon={<IconPlus size={13} />} onClick={onCreateRevisionTask} disabled={revisionTaskCreating || !revisionTaskAssigneeId}>
-                  {revisionTaskCreating ? "Creating..." : "Create task from revision"}
+                  {revisionTaskCreating ? "Creating..." : "Create task + work order"}
                 </Button>
               </div>
             </div>
@@ -1882,6 +1891,13 @@ function BackendReviewBadge({ status }) {
   };
   const next = map[status || "PENDING"] || map.PENDING;
   return <Badge tone={next.tone}>{next.label}</Badge>;
+}
+
+function workOrderAgentTypeFromArtifact(agentType) {
+  const normalized = String(agentType || "").toUpperCase();
+  return ["FRONTEND", "BACKEND", "DATABASE", "ARCHITECTURE", "CONTRACT"].includes(normalized)
+    ? normalized
+    : "FRONTEND";
 }
 
 function OutputReviewBadge({ status }) {
