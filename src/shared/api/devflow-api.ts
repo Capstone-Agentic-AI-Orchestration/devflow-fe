@@ -489,6 +489,18 @@ export interface DevFlowAgentProviderCapability {
   implemented: boolean;
   missingRequirements: string[];
   reason: string | null;
+  provider?: string;
+  model?: string;
+  fallbackModel?: string | null;
+}
+
+export interface DevFlowGithubDeliveryStatus {
+  configured: boolean;
+  available: boolean;
+  owner: string | null;
+  ownerSource: "env" | "installation" | null;
+  missingRequirements: string[];
+  reason: string | null;
 }
 
 export interface DevFlowAgentProviderStatus {
@@ -498,7 +510,11 @@ export interface DevFlowAgentProviderStatus {
   fallbackMode: DevFlowAgentProviderMode | null;
   missingRequirements: string[];
   reason: string | null;
+  provider?: string;
+  model?: string;
+  fallbackModel?: string | null;
   providers: DevFlowAgentProviderCapability[];
+  githubDelivery?: DevFlowGithubDeliveryStatus;
 }
 
 export interface DevFlowNotification {

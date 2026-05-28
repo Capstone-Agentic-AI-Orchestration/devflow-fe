@@ -18,6 +18,7 @@ export function OrchestrationProviderStatusPanel({
   compact = false,
 }: OrchestrationProviderStatusPanelProps) {
   const available = Boolean(status?.available);
+  const githubDelivery = status?.githubDelivery;
   const tone = loading ? "gray" : error ? "red" : available ? "green" : "amber";
   const label = loading ? "Checking" : error ? "Unavailable" : available ? "Available" : "Blocked";
   const activeProvider = status?.providers.find((provider) => provider.active);
@@ -58,6 +59,38 @@ export function OrchestrationProviderStatusPanel({
         <ProviderMiniFact label="Fallback" value={status?.fallbackMode ? providerLabel(status.fallbackMode) : "None"} />
         <ProviderMiniFact label="Adapter" value={activeProvider?.implemented ? "Implemented" : activeProvider ? "Pending" : "Unknown"} />
       </div>
+
+      {githubDelivery && (
+        <div
+          style={{
+            padding: "10px 0 0",
+            borderTop: "1px solid rgba(148,163,184,.14)",
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <div className="row" style={{ justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 800 }}>GitHub delivery</div>
+              <div style={{ color: "var(--text-3)", fontSize: 11.5, marginTop: 2, overflowWrap: "anywhere" }}>
+                {githubDelivery.reason || `Ready to create repositories in ${githubDelivery.owner || "configured owner"}.`}
+              </div>
+            </div>
+            <Badge tone={githubDelivery.available ? "green" : "amber"} style={undefined}>{githubDelivery.available ? "Ready" : "Setup needed"}</Badge>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+            <ProviderMiniFact label="Owner" value={githubDelivery.owner || "Not set"} />
+            <ProviderMiniFact label="Source" value={githubDelivery.ownerSource || "Unknown"} />
+          </div>
+          {githubDelivery.missingRequirements?.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {githubDelivery.missingRequirements.map((requirement) => (
+                <Badge key={requirement} tone="amber" style={undefined}>{requirement}</Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {status?.missingRequirements?.length ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

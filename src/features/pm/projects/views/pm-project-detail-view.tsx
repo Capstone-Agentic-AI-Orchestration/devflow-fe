@@ -760,7 +760,9 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
   const currentNode = status?.currentNode && status.currentNode !== "none" ? status.currentNode : detail.runId || "No active node";
   const latestRun = runs?.[0];
   const providerUnavailable = !providerLoading && (providerError || (providerStatus && !providerStatus.available));
-  const actionBlocked = blockers.length > 0 || Boolean(providerUnavailable);
+  const githubDelivery = providerStatus?.githubDelivery;
+  const githubDeliveryUnavailable = providerStatus?.activeMode === "llm" && githubDelivery && !githubDelivery.available;
+  const actionBlocked = blockers.length > 0 || Boolean(providerUnavailable) || Boolean(githubDeliveryUnavailable);
   const activeProviderLabel = providerStatus?.activeMode === "llm" ? "LLM" : providerStatus?.activeMode === "mock" ? "Mock" : "Agent";
 
   return (
@@ -795,6 +797,8 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 14 }}>
         <OrchestrationFact label="Agent provider" value={providerLoading ? "Checking..." : activeProviderLabel} tone={providerStatus?.available ? "green" : "amber"} />
+        <OrchestrationFact label="GitHub delivery" value={githubDelivery ? (githubDelivery.available ? githubDelivery.owner || "Ready" : "Setup needed") : "Checking..."} tone={githubDelivery?.available ? "green" : "amber"} />
+        <OrchestrationFact label="Repository" value={detail.repoUrl || "Not linked"} tone={detail.repoUrl ? "green" : "gray"} mono />
         <OrchestrationFact label="Run status" value={statusLoading ? "Checking..." : statusView.label} tone={statusView.tone} />
         <OrchestrationFact label="Current node" value={currentNode} tone="purple" mono />
         <OrchestrationFact label="Run history" value={runsLoading ? "Loading..." : String(runs?.length || 0)} tone={runs?.length ? "blue" : "gray"} />
@@ -839,12 +843,27 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         </div>
       )}
 
-      {(blockers.length > 0 || providerUnavailable) && !detail.runId ? (
+      {detail.repoUrl && (
+        <div className="row gap-2" style={{ marginTop: 14, padding: 10, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5, justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span className="row gap-2"><IconGitBranch size={13} style={{ color: "#6EE7B7" }} /> Generated repository is linked.</span>
+          <a href={detail.repoUrl} target="_blank" rel="noreferrer" className="row gap-1" style={{ color: "#93C5FD", fontWeight: 700 }}>
+            Open repo <IconExternalLink size={12} />
+          </a>
+        </div>
+      )}
+
+      {(blockers.length > 0 || providerUnavailable || githubDeliveryUnavailable) && !detail.runId ? (
         <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
           {providerUnavailable && (
             <div className="row gap-2" style={{ padding: 10, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
               <IconAlertTriangle size={13} style={{ color: "#FBBF24", flexShrink: 0 }} />
               <span>{compactBackendError(providerError) || providerStatus?.reason || "The selected agent provider is not available."}</span>
+            </div>
+          )}
+          {githubDeliveryUnavailable && (
+            <div className="row gap-2" style={{ padding: 10, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 8, color: "var(--text-2)", fontSize: 12.5 }}>
+              <IconAlertTriangle size={13} style={{ color: "#FBBF24", flexShrink: 0 }} />
+              <span>{githubDelivery?.reason || "GitHub delivery is not ready. Configure GitHub App credentials before starting the LLM delivery flow."}</span>
             </div>
           )}
           {blockers.map((blocker) => (
