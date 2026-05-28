@@ -1854,6 +1854,7 @@ function BackendArtifactsPanel({ projectId, artifacts, tasks, members, loading, 
               <div className="row gap-2" style={{ flexShrink: 0 }}>
                 <BackendReviewBadge status={artifact.reviewStatus} />
                 <OutputReviewBadge status={artifact.outputReviewStatus} />
+                <ArtifactValidationBadge status={artifact.validationStatus} />
                 {tasks.some((task) => task.artifactId === artifact.id) && <Badge tone="blue">Task linked</Badge>}
                 <Badge tone={artifact.clientVisible ? "green" : "blue"}>{artifact.clientVisible ? "Client-visible" : "Internal"}</Badge>
               </div>
@@ -1921,9 +1922,11 @@ function ArtifactPreviewModal({ open, onClose, artifact, loading, error, sharing
           <div className="row gap-2" style={{ flexWrap: "wrap" }}>
             <BackendReviewBadge status={artifact.reviewStatus} />
             <OutputReviewBadge status={artifact.outputReviewStatus} />
+            <ArtifactValidationBadge status={artifact.validationStatus} />
             {artifact.reviewedAt && <span style={{ color: "var(--text-3)", fontSize: 12 }}>Reviewed {formatBackendDate(artifact.reviewedAt)}</span>}
             {artifact.publishedAt && <span style={{ color: "var(--text-3)", fontSize: 12 }}>Published {formatBackendDate(artifact.publishedAt)}</span>}
           </div>
+          <ArtifactValidationPanel artifact={artifact} />
           <div style={{ display: "grid", gap: 10, padding: 12, border: "1px solid rgba(79,139,255,.22)", background: "rgba(79,139,255,.06)", borderRadius: 10 }}>
             <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
               <div>
@@ -2045,6 +2048,37 @@ function BackendReviewBadge({ status }) {
   };
   const next = map[status || "PENDING"] || map.PENDING;
   return <Badge tone={next.tone}>{next.label}</Badge>;
+}
+
+function ArtifactValidationBadge({ status }) {
+  const map = {
+    PASSED: { tone: "green", label: "Validated" },
+    FAILED: { tone: "red", label: "Invalid" },
+    PENDING: { tone: "gray", label: "Unvalidated" },
+  };
+  const next = map[status || "PENDING"] || map.PENDING;
+  return <Badge tone={next.tone}>{next.label}</Badge>;
+}
+
+function ArtifactValidationPanel({ artifact }) {
+  const errors = Array.isArray(artifact.validationErrors) ? artifact.validationErrors.filter(Boolean) : [];
+  if (!artifact.validationSummary && errors.length === 0 && !artifact.validationStatus) return null;
+
+  const failed = artifact.validationStatus === "FAILED";
+  return (
+    <div style={{ padding: 12, border: `1px solid ${failed ? "rgba(239,68,68,.28)" : "rgba(16,185,129,.24)"}`, background: failed ? "rgba(239,68,68,.07)" : "rgba(16,185,129,.07)", borderRadius: 10 }}>
+      <div className="row" style={{ justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>Artifact contract</div>
+        <ArtifactValidationBadge status={artifact.validationStatus} />
+      </div>
+      {artifact.validationSummary && <div style={{ color: "var(--text-2)", fontSize: 12.5, marginTop: 6 }}>{artifact.validationSummary}</div>}
+      {errors.length > 0 && (
+        <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: failed ? "#FCA5A5" : "var(--text-2)", fontSize: 12.5, lineHeight: 1.45 }}>
+          {errors.map((error, index) => <li key={`${String(error)}-${index}`}>{String(error)}</li>)}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function workOrderAgentTypeFromArtifact(agentType) {

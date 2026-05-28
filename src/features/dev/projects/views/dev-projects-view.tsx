@@ -549,6 +549,7 @@ function DevBackendArtifacts({ artifacts, loading, error }) {
             <div className="row gap-2" style={{ flexShrink: 0 }}>
               <DevReviewBadge status={artifact.reviewStatus} />
               <DevOutputReviewBadge status={artifact.outputReviewStatus} />
+              <DevValidationBadge status={artifact.validationStatus} />
               {artifact.revisionHandledAt && <Badge tone="green">PM handled</Badge>}
             </div>
           </button>
@@ -584,8 +585,14 @@ function DevArtifactPreviewModal({ open, onClose, artifact, loading, error }) {
           </div>
           <div className="row gap-2" style={{ flexWrap: "wrap" }}>
             <DevReviewBadge status={artifact.reviewStatus} />
+            <DevValidationBadge status={artifact.validationStatus} />
             {artifact.reviewedAt && <span style={{ color: "var(--text-3)", fontSize: 12 }}>Reviewed {formatDevFlowDate(artifact.reviewedAt)}</span>}
           </div>
+          {artifact.validationSummary && (
+            <div style={{ padding: 12, borderRadius: 8, border: "1px solid rgba(16,185,129,.24)", background: "rgba(16,185,129,.07)", color: "var(--text-2)", fontSize: 12.5, lineHeight: 1.45 }}>
+              {artifact.validationSummary}
+            </div>
+          )}
           {artifact.reviewNote && (
             <div style={{ padding: 12, border: "1px solid rgba(245,158,11,.28)", background: "rgba(245,158,11,.08)", borderRadius: 10, color: "var(--text-2)", fontSize: 13, lineHeight: 1.5 }}>
               {artifact.reviewNote}
@@ -609,6 +616,16 @@ function DevReviewBadge({ status }) {
     APPROVED: { tone: "green", label: "Approved" },
     REVISION_REQUESTED: { tone: "amber", label: "Revision requested" },
     PENDING: { tone: "gray", label: "Pending review" },
+  };
+  const next = map[status || "PENDING"] || map.PENDING;
+  return <Badge tone={next.tone}>{next.label}</Badge>;
+}
+
+function DevValidationBadge({ status }) {
+  const map = {
+    PASSED: { tone: "green", label: "Validated" },
+    FAILED: { tone: "red", label: "Invalid" },
+    PENDING: { tone: "gray", label: "Unvalidated" },
   };
   const next = map[status || "PENDING"] || map.PENDING;
   return <Badge tone={next.tone}>{next.label}</Badge>;

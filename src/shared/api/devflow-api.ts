@@ -66,6 +66,7 @@ export type DevFlowProjectLifecycleStage =
 export type DevFlowArtifactReviewStatus = "PENDING" | "APPROVED" | "REVISION_REQUESTED";
 
 export type DevFlowArtifactOutputReviewStatus = "PENDING" | "APPROVED" | "REWORK_REQUESTED" | "PUBLISHED";
+export type DevFlowArtifactValidationStatus = "PENDING" | "PASSED" | "FAILED";
 
 export type DevFlowProjectDeliveryReviewStatus = "PENDING" | "ACCEPTED" | "REVISION_REQUESTED" | "REVISION_RESOLVED";
 
@@ -336,6 +337,9 @@ export interface DevFlowArtifact {
   outputReviewNote?: string | null;
   outputReviewedAt?: string | null;
   outputReviewedById?: string | null;
+  validationStatus?: DevFlowArtifactValidationStatus;
+  validationSummary?: string | null;
+  validationErrors?: string[] | Record<string, unknown>[] | null;
   publishedAt?: string | null;
   publishedById?: string | null;
   revisionHandledAt?: string | null;
@@ -414,6 +418,7 @@ export interface DevFlowWorkOrder {
     displayName: string | null;
     reviewStatus: DevFlowArtifactReviewStatus;
     outputReviewStatus: DevFlowArtifactOutputReviewStatus;
+    validationStatus?: DevFlowArtifactValidationStatus;
   } | null;
   createdBy: DevFlowProfile | null;
 }
@@ -447,6 +452,7 @@ export interface DevFlowWorkOrderExecution {
     displayName: string | null;
     outputReviewStatus: DevFlowArtifactOutputReviewStatus;
     reviewStatus: DevFlowArtifactReviewStatus;
+    validationStatus?: DevFlowArtifactValidationStatus;
     createdAt?: string;
   } | null;
 }
