@@ -4,8 +4,9 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, Field, Input, Textarea } from "@/shared/components/ui";
 import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { OrchestrationLiveVisualizer } from "@/shared/components/orchestration/orchestration-live-visualizer";
 import { getDevFlowOrchestrationRuns, getDevFlowProjectEvents } from "@/shared/api/devflow-api";
-import { useDevFlowOrchestrationProviderStatus, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
+import { useDevFlowOrchestrationProviderStatus, useDevFlowProjectOutputs, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
 import { compactDevFlowError } from "@/shared/utils/devflow-projects";
 import {
   IconActivity,
@@ -141,6 +142,7 @@ export function AdminOrchestrationView() {
   const selectedProject = projectsState.projects.find((project) => project.id === selectedProjectId) || projectsState.projects[0] || null;
   const effectiveProjectId = selectedProject?.id || "";
   const provider = useDevFlowOrchestrationProviderStatus(effectiveProjectId);
+  const outputs = useDevFlowProjectOutputs(effectiveProjectId, { includeEvents: false, includeWorkOrders: true });
   const [runs, setRuns] = useState([]);
   const [events, setEvents] = useState([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -151,7 +153,7 @@ export function AdminOrchestrationView() {
   const failedExecutions = executions.filter((execution) => execution.status === "FAILED").length;
   const activeExecutions = executions.filter((execution) => execution.status === "RUNNING").length;
 
-  const refreshRuns = async (projectId = effectiveProjectId) => {
+  const refreshRuns = async (projectId = effectiveProjectId, quiet = false) => {
     if (!projectId) {
       setRuns([]);
       setEvents([]);
@@ -160,7 +162,7 @@ export function AdminOrchestrationView() {
       return;
     }
 
-    setRunsLoading(true);
+    if (!quiet) setRunsLoading(true);
     setRunsError("");
     try {
       const [nextRuns, nextEvents] = await Promise.all([
@@ -174,7 +176,7 @@ export function AdminOrchestrationView() {
       setEvents([]);
       setRunsError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
-      setRunsLoading(false);
+      if (!quiet) setRunsLoading(false);
     }
   };
 
@@ -186,9 +188,40 @@ export function AdminOrchestrationView() {
     void refreshRuns(effectiveProjectId);
   }, [effectiveProjectId]);
 
+  useEffect(() => {
+    const activeRun = runs.some((run) => run.status === "RUNNING");
+    const activeWorkOrder = outputs.workOrders.some((workOrder) => workOrder.status === "DISPATCHED");
+    if (!effectiveProjectId || (!activeRun && !activeWorkOrder)) return;
+
+    let mounted = true;
+    let pending = false;
+    const refreshLiveSnapshot = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        await Promise.all([
+          refreshRuns(effectiveProjectId, true),
+          provider.refresh?.(),
+          outputs.refresh?.(),
+        ]);
+      } catch {
+        // Existing panels expose request failures; keep the live loop quiet.
+      } finally {
+        if (mounted) pending = false;
+      }
+    };
+
+    const timer = window.setInterval(refreshLiveSnapshot, 4000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [effectiveProjectId, runs.length, latestRun?.status, outputs.workOrders.length]);
+
   const refresh = () => {
     projectsState.refresh();
     provider.refresh();
+    outputs.refresh();
     refreshRuns();
   };
 
@@ -222,6 +255,18 @@ export function AdminOrchestrationView() {
           <StatCard label="Events" value={runsLoading ? "..." : String(events.length)} sub="Project event log records" icon={<IconFileText size={16} />} tint="#A78BFA" />
         </div>
       </Card>
+      <div style={{ marginBottom: 18 }}>
+        <OrchestrationLiveVisualizer
+          project={selectedProject}
+          providerStatus={provider.status}
+          runs={runs}
+          workOrders={outputs.workOrders}
+          artifacts={outputs.artifacts}
+          events={events}
+          loading={runsLoading || outputs.loading || provider.loading}
+        />
+        {outputs.error && <div style={{ color: "#FCA5A5", fontSize: 12.5, marginTop: 8 }}>{compactDevFlowError(outputs.error)}</div>}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) 360px", gap: 18 }}>
         <Card style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: 18, borderBottom: "1px solid var(--border)" }}>

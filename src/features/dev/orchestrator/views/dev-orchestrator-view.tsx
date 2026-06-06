@@ -1,12 +1,14 @@
 // @ts-nocheck
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card } from "@/shared/components/ui";
 import { IconArrowRight, IconCpu, IconFileText, IconRefresh, IconWorkflow } from "@/shared/components/icons";
 import { DevPageHeader } from "@/features/dev/shared/components/dev-page-header";
 import { BackendAwareRouteState } from "@/shared/components/backend-aware-route-state";
 import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { OrchestrationLiveVisualizer } from "@/shared/components/orchestration/orchestration-live-visualizer";
 import { useDevFlowOrchestrationProviderStatus, useDevFlowOrchestrationStatus, useDevFlowProject, useDevFlowProjectOutputs, useDevFlowProjects } from "@/shared/hooks/use-devflow-projects";
 import { useSelectedDevFlowProject } from "@/shared/projects/selected-project-context";
 import { compactDevFlowError, devflowLifecycleView, formatDevFlowDate, lifecycleProgressColor } from "@/shared/utils/devflow-projects";
@@ -24,6 +26,37 @@ export function DevOrchestratorView() {
     orchestration.refresh();
     provider.refresh();
   };
+
+  useEffect(() => {
+    const liveRun = Boolean(selectedProject?.runId) && !["DELIVERED", "FAILED"].includes(selectedProject?.status || "");
+    const activeWorkOrder = outputs.workOrders.some((workOrder) => workOrder.status === "DISPATCHED");
+    if (!selectedProjectId || (!liveRun && !activeWorkOrder)) return;
+
+    let mounted = true;
+    let pending = false;
+    const refreshLiveSnapshot = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        await Promise.all([
+          refreshProjects?.(),
+          outputs.refresh?.(),
+          orchestration.refresh?.(),
+          provider.refresh?.(),
+        ]);
+      } catch {
+        // Existing panels expose request failures; keep the live loop quiet.
+      } finally {
+        if (mounted) pending = false;
+      }
+    };
+
+    const timer = window.setInterval(refreshLiveSnapshot, 4000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [selectedProjectId, selectedProject?.runId, selectedProject?.status, orchestration.status?.status, outputs.workOrders.length]);
 
   return (
     <div data-screen-label="Dev Orchestrator" style={{ display: "grid", gap: 20 }}>
@@ -78,6 +111,16 @@ export function DevOrchestratorView() {
           </div>
 
           <OrchestrationProviderStatusPanel status={provider.status} loading={provider.loading} error={provider.error ? compactDevFlowError(provider.error) : ""} />
+
+          <OrchestrationLiveVisualizer
+            project={selectedProject}
+            status={orchestration.status}
+            providerStatus={provider.status}
+            workOrders={outputs.workOrders}
+            artifacts={outputs.artifacts}
+            events={outputs.events}
+            loading={outputs.loading || orchestration.loading || provider.loading}
+          />
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 18 }}>
             <Card style={{ padding: 0, overflow: "hidden" }}>

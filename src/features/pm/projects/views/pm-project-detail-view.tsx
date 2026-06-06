@@ -8,6 +8,7 @@ import { PMPageHeader } from "@/features/pm/shared/components/pm-page-header";
 import { Badge, Button, Card, Field, Input, Select, Tabs, Textarea } from "@/shared/components/ui";
 import { DevFlowProjectTimeline } from "@/shared/components/project-timeline/devflow-project-timeline";
 import { OrchestrationProviderStatusPanel } from "@/shared/components/orchestration/orchestration-provider-status-panel";
+import { OrchestrationLiveVisualizer } from "@/shared/components/orchestration/orchestration-live-visualizer";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -197,15 +198,15 @@ function BackendProjectDetail({ project, onBack }) {
   const providerActionBlocked = provider.loading || provider.error || (provider.status && !provider.status.available);
   const canStartOrchestration = orchestrationBlockers.length === 0 && !detail.runId && !starting && !providerActionBlocked;
 
-  const refreshOrchestrationRuns = async () => {
-    setOrchestrationRunsLoading(true);
+  const refreshOrchestrationRuns = async (quiet = false) => {
+    if (!quiet) setOrchestrationRunsLoading(true);
     setOrchestrationRunsError("");
     try {
       setOrchestrationRuns(await getDevFlowOrchestrationRuns(detail.id));
     } catch (nextError) {
       setOrchestrationRunsError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
-      setOrchestrationRunsLoading(false);
+      if (!quiet) setOrchestrationRunsLoading(false);
     }
   };
 
@@ -296,6 +297,42 @@ function BackendProjectDetail({ project, onBack }) {
     refreshOrchestrationRuns();
     refreshDeliveryReadiness();
   }, [detail.id]);
+
+  useEffect(() => {
+    const liveRun = Boolean(detail.runId) && !["DELIVERED", "FAILED"].includes(detail.status);
+    const activeRun = orchestrationRuns.some((run) => run.status === "RUNNING");
+    const activeWorkOrder = outputs.workOrders.some((workOrder) => workOrder.status === "DISPATCHED");
+
+    if (!liveRun && !activeRun && !activeWorkOrder && !orchestrationAction) return;
+
+    let mounted = true;
+    let pending = false;
+    const refreshLiveSnapshot = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const updated = await getDevFlowProject(detail.id);
+        if (!mounted) return;
+        setDetail(updated);
+        await Promise.all([
+          outputs.refresh?.(),
+          orchestration.refresh?.(),
+          provider.refresh?.(),
+          refreshOrchestrationRuns(true),
+        ]);
+      } catch {
+        // Existing hooks surface their own request errors; avoid replacing the page with a transient live-refresh failure.
+      } finally {
+        pending = false;
+      }
+    };
+
+    const timer = window.setInterval(refreshLiveSnapshot, 4000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [detail.id, detail.runId, detail.status, orchestration.status?.status, orchestrationAction, outputs.workOrders.length, orchestrationRuns.length]);
 
   const saveProject = async () => {
     setSaving(true);
@@ -861,6 +898,19 @@ function BackendOrchestrationPanel({ detail, status, statusLoading, statusError,
         <OrchestrationFact label="Failed work orders" value={String(failedWorkOrders.length)} tone={failedWorkOrders.length ? "red" : "green"} />
         <OrchestrationFact label="Generated artifacts" value={String(generatedWorkOrderArtifacts.length)} tone={generatedWorkOrderArtifacts.length ? "blue" : "gray"} />
         <OrchestrationFact label="PM review queue" value={String(pendingPmReview.length)} tone={pendingPmReview.length ? "amber" : "green"} />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <OrchestrationLiveVisualizer
+          project={detail}
+          status={status}
+          providerStatus={providerStatus}
+          runs={runs || []}
+          workOrders={workOrders}
+          artifacts={artifacts}
+          events={events}
+          loading={statusLoading || runsLoading}
+        />
       </div>
 
       {latestRun && (

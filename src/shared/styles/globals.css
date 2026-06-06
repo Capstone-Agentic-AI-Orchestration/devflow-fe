@@ -1015,6 +1015,33 @@ h1, h2, h3, h4 { letter-spacing: -0.025em; margin: 0; font-weight: 700; }
   animation: flowGlow 1.2s linear infinite;
 }
 
+@keyframes orchestrationFillShift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 180% 50%; }
+}
+
+@keyframes orchestrationStageScan {
+  0% { transform: translateX(-120%); opacity: .15; }
+  45% { opacity: .75; }
+  100% { transform: translateX(120%); opacity: .15; }
+}
+
+.orchestration-live-fill {
+  background-size: 180% 100%;
+  animation: orchestrationFillShift 1.6s linear infinite;
+}
+
+.orchestration-stage-scan {
+  animation: orchestrationStageScan 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orchestration-live-fill,
+  .orchestration-stage-scan {
+    animation: none !important;
+  }
+}
+
 /* The big agent ring on the orchestrator */
 .agent-node-ring {
   animation: nodePulse 1.8s ease-in-out infinite;
