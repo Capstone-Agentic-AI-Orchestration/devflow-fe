@@ -4,6 +4,13 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import {
+  AnimatePresence,
+  motion,
+  useScroll,
+  useSpring,
+  useTransform,
+} from "framer-motion";
 import { Button, Card } from "@/shared/components/ui";
 import { ContactCloser, Footer, TopNav, useReveal } from "@/shared/components/layout";
 import {
@@ -148,7 +155,10 @@ function HeroMotionStage() {
             <span className="chrome-dot" />
             <span className="chrome-dot" />
           </div>
-          <span className="mono">delivery.graph</span>
+          <div className="hero-stage-status">
+            <span className="badge badge-green"><span className="dot" /> Live</span>
+            <span className="mono">delivery.graph</span>
+          </div>
         </div>
         <div className="hero-stage-body">
           <div className="hero-stage-map" aria-hidden="true">
@@ -179,11 +189,6 @@ function HeroMotionStage() {
           </div>
         </div>
       </div>
-      <div className="hero-stage-note">
-        <span className="badge badge-green"><span className="dot" /> Live</span>
-        <strong>Backend-reflective by design</strong>
-        <p>Motion follows the same project lifecycle your PM, DEV, and CLIENT workspaces use.</p>
-      </div>
     </div>
   );
 }
@@ -193,11 +198,106 @@ function HeroMarquee() {
   return (
     <div className="hero-marquee" aria-hidden="true">
       <div className="hero-marquee-track">
-        {[...labels, ...labels].map((label, index) => (
-          <span key={`${label}-${index}`}>{label}</span>
+        {Array.from({ length: 4 }).map((_, groupIndex) => (
+          <div className="hero-marquee-group" key={groupIndex}>
+            {labels.map((label) => (
+              <span key={`${label}-${groupIndex}`}>{label}</span>
+            ))}
+          </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function HomepageProgressRail() {
+  const [activeLabel, setActiveLabel] = useState("Hero");
+  const [sectionMarkers, setSectionMarkers] = useState([]);
+  const { scrollYProgress } = useScroll();
+  const smoothProgress = useSpring(scrollYProgress, {
+    stiffness: 90,
+    damping: 28,
+    mass: 0.32,
+  });
+  const markerTop = useTransform(smoothProgress, (value) => `${value * 100}%`);
+  const scrollToSection = (label) => {
+    const section = document.querySelector(`[data-progress-title="${label}"]`);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveLabel(label);
+  };
+
+  useEffect(() => {
+    const sections = Array.from(document.querySelectorAll("[data-progress-title]"));
+    if (!sections.length) return;
+
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const viewportHeight = window.innerHeight || 1;
+      const viewportAnchor = viewportHeight * 0.42;
+      const maxScroll = Math.max(document.documentElement.scrollHeight - viewportHeight, 1);
+      const scrollPosition = window.scrollY + viewportAnchor;
+      const markersByLabel = new Map();
+      let current = sections[0];
+
+      sections.forEach((section, index) => {
+        const rect = section.getBoundingClientRect();
+        const top = rect.top + window.scrollY;
+        const bottom = top + rect.height;
+        const label = section.getAttribute("data-progress-title") || "Homepage";
+        const start = Math.max(0, top - viewportAnchor);
+        const end = Math.min(maxScroll, bottom - viewportAnchor);
+        const markerScroll = start + Math.max(end - start, 1) / 2;
+        const markerTop = Math.min(Math.max((markerScroll / maxScroll) * 100, 2), 98);
+
+        if (label !== "Hero") {
+          markersByLabel.set(label, { label, top: markerTop, index });
+        }
+        if (scrollPosition >= top && scrollPosition < bottom) {
+          current = section;
+        }
+      });
+
+      setSectionMarkers(Array.from(markersByLabel.values()));
+      setActiveLabel(current.getAttribute("data-progress-title") || "Homepage");
+    };
+    const requestUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+
+    update();
+    window.addEventListener("scroll", requestUpdate, { passive: true });
+    window.addEventListener("resize", requestUpdate);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", requestUpdate);
+      window.removeEventListener("resize", requestUpdate);
+    };
+  }, []);
+
+  return (
+    <aside className="homepage-progress-rail" aria-label="Homepage section progress">
+      <div className="homepage-progress-track">
+        <motion.span className="homepage-progress-fill" style={{ scaleY: smoothProgress }} />
+        <motion.span className="homepage-progress-marker" style={{ top: markerTop }} />
+      </div>
+      <div className="homepage-progress-list">
+        {sectionMarkers.map(({ label, top }) => (
+          <button
+            type="button"
+            key={label}
+            className={activeLabel === label ? "is-active" : ""}
+            onClick={() => scrollToSection(label)}
+            aria-current={activeLabel === label ? "true" : undefined}
+            data-section-label={label}
+            style={{ "--section-progress-top": `${top}%` }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -226,6 +326,14 @@ function InteractiveDeliveryExperience() {
       tint: "#F59E0B",
     },
   ];
+  useEffect(() => {
+    const id = setInterval(() => setActive((index) => (index + 1) % panels.length), 2400);
+    return () => clearInterval(id);
+  }, [panels.length]);
+
+  const selectPanel = (index) => {
+    setActive(index);
+  };
 
   return (
     <section className="section interactive-delivery">
@@ -245,9 +353,9 @@ function InteractiveDeliveryExperience() {
                 <button
                   key={panel.kicker}
                   className={active === index ? "is-active" : ""}
-                  onMouseEnter={() => setActive(index)}
-                  onFocus={() => setActive(index)}
-                  onClick={() => setActive(index)}
+                  onMouseEnter={() => selectPanel(index)}
+                  onFocus={() => selectPanel(index)}
+                  onClick={() => selectPanel(index)}
                   type="button"
                   style={{ "--panel-tint": panel.tint }}
                 >
@@ -258,14 +366,32 @@ function InteractiveDeliveryExperience() {
             </div>
             <div className="preview-canvas" style={{ "--panel-tint": panels[active].tint }}>
               <div className="preview-scan" />
-              <div className="preview-card preview-card-a">
-                <span className="mono">{panels[active].stat}</span>
-                <strong>{panels[active].title}</strong>
-              </div>
-              <div className="preview-card preview-card-b">
-                <span className="badge badge-blue"><span className="dot" /> Synced</span>
-                <p>{panels[active].body}</p>
-              </div>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`${panels[active].kicker}-a`}
+                  className="preview-card preview-card-a"
+                  initial={{ opacity: 0, y: 18, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -14, filter: "blur(8px)" }}
+                  transition={{ duration: .42, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <span className="mono">{panels[active].stat}</span>
+                  <strong>{panels[active].title}</strong>
+                </motion.div>
+              </AnimatePresence>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`${panels[active].kicker}-b`}
+                  className="preview-card preview-card-b"
+                  initial={{ opacity: 0, y: -12, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: 12, filter: "blur(8px)" }}
+                  transition={{ duration: .42, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <span className="badge badge-blue"><span className="dot" /> Synced</span>
+                  <p>{panels[active].body}</p>
+                </motion.div>
+              </AnimatePresence>
               <div className="preview-pulse" />
             </div>
           </div>
@@ -275,7 +401,7 @@ function InteractiveDeliveryExperience() {
               <article
                 key={panel.kicker}
                 className={active === index ? "is-active" : ""}
-                onMouseEnter={() => setActive(index)}
+                onMouseEnter={() => selectPanel(index)}
                 style={{ "--panel-tint": panel.tint }}
               >
                 <span className="mono">{panel.kicker}</span>
@@ -400,11 +526,6 @@ function Features() {
 /* --- How it works (interactive delivery flow) --- */
 function HowItWorks() {
   const [active, setActive] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setActive((index) => (index + 1) % 4), 2600);
-    return () => clearInterval(id);
-  }, []);
-
   const steps = [
     {
       n: "01",
@@ -439,30 +560,73 @@ function HowItWorks() {
       tint: "#10B981",
     },
   ];
+  const stepCount = steps.length;
   const current = steps[active];
+  const progressPercent = `${((active + 1) / stepCount) * 100}%`;
+  useEffect(() => {
+    const id = setInterval(() => setActive((index) => (index + 1) % stepCount), 2200);
+    return () => clearInterval(id);
+  }, [stepCount]);
+
+  const selectStep = (index) => {
+    setActive(index);
+  };
 
   return (
-    <section className="section flow-lab">
+    <section
+      id="process-pipeline"
+      className="flow-lab"
+      style={{ "--flow-progress": progressPercent }}
+    >
       <div className="container">
         <div className="flow-lab-head" data-reveal>
           <span className="eyebrow"><span className="dot" /> The flow</span>
-          <h2 className="h-1 mt-4">How it <span className="gradient-text">works</span></h2>
+          <h2 className="h-1 mt-4">Follow the pipeline from idea to handoff.</h2>
           <p className="lead mt-4">
-            From a single inquiry to a deployed system, every phase has a visible state.
+            Watch the same delivery path your PM, developers, and client portal follow.
+            Each phase reveals the next operating state without changing the underlying workflow.
           </p>
         </div>
 
         <div className="flow-lab-grid mt-16">
-          <div className="flow-lab-preview" data-reveal style={{ "--flow-tint": current.tint }}>
+          <motion.div
+            className="flow-lab-preview"
+            data-reveal
+            style={{
+              "--flow-tint": current.tint,
+            }}
+            transition={{ type: "spring", stiffness: 160, damping: 24 }}
+          >
             <div className="flow-preview-glow" />
+            <div className="flow-preview-track" aria-hidden="true">
+              {steps.map((step, index) => (
+                <motion.span
+                  key={step.n}
+                  className={index <= active ? "is-lit" : ""}
+                  style={{ "--flow-tint": step.tint }}
+                  animate={{ scale: index === active ? 1.08 : 1, opacity: index <= active ? 1 : 0.62 }}
+                  transition={{ type: "spring", stiffness: 240, damping: 22 }}
+                />
+              ))}
+            </div>
             <div className="flow-preview-top">
               <span className="badge badge-blue"><span className="dot" /> Active phase</span>
               <span className="mono">{current.metric}</span>
             </div>
             <div className="flow-preview-core">
-              <span className="flow-preview-number">{current.n}</span>
-              <h3>{current.title}</h3>
-              <p>{current.desc}</p>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={current.n}
+                  initial={{ opacity: 0, y: 24, filter: "blur(8px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, y: -18, filter: "blur(8px)" }}
+                  transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <span className="flow-preview-number">{current.n}</span>
+                  <h3>{current.title}</h3>
+                  <p>{current.desc}</p>
+                </motion.div>
+              </AnimatePresence>
             </div>
             <div className="flow-preview-bottom">
               <div>
@@ -479,21 +643,28 @@ function HowItWorks() {
               <span />
               <span />
             </div>
-          </div>
+          </motion.div>
 
           <div className="flow-lab-steps" data-reveal>
             <div className="flow-lab-path" aria-hidden="true">
-              <span style={{ height: `${((active + 1) / steps.length) * 100}%` }} />
+              <motion.span style={{ height: progressPercent }} />
             </div>
             {steps.map((step, index) => (
-              <button
+              <motion.button
                 key={step.n}
                 type="button"
                 className={`flow-step ${active === index ? "is-active" : ""}`}
-                onMouseEnter={() => setActive(index)}
-                onFocus={() => setActive(index)}
-                onClick={() => setActive(index)}
+                onMouseEnter={() => selectStep(index)}
+                onFocus={() => selectStep(index)}
+                onClick={() => selectStep(index)}
                 style={{ "--flow-tint": step.tint, transitionDelay: `${index * 55}ms` }}
+                animate={{
+                  x: active === index ? 8 : 0,
+                  opacity: active === index ? 1 : 0.82,
+                }}
+                whileHover={{ x: 10, opacity: 1 }}
+                whileTap={{ scale: 0.992 }}
+                transition={{ type: "spring", stiffness: 280, damping: 28 }}
               >
                 <span className="flow-step-index">{step.n}</span>
                 <span className="flow-step-copy">
@@ -501,7 +672,7 @@ function HowItWorks() {
                   <small>{step.desc}</small>
                 </span>
                 <span className="flow-step-meta mono">{step.metric}</span>
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
@@ -782,16 +953,33 @@ function HomePage({ onSubmittedForm, scrollTarget, onScrolled }) {
   }, [onScrolled, scrollTarget]);
 
   return (
-    <div data-screen-label="01 Landing">
-      <Hero onCta={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })} />
-      <InteractiveDeliveryExperience />
-      <Features />
-      <HowItWorks />
-      <TrustedBy />
-      <Stats />
-      <Outcomes />
-      <FAQ />
-      <ContactCloser onSubmitted={onSubmittedForm} />
+    <div className="marketing-homepage" data-screen-label="01 Landing">
+      <HomepageProgressRail />
+      <div data-progress-title="Hero">
+        <Hero onCta={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })} />
+      </div>
+      <div data-progress-title="Experience">
+        <InteractiveDeliveryExperience />
+      </div>
+      <div data-progress-title="Capabilities">
+        <Features />
+      </div>
+      <div data-progress-title="Pipeline">
+        <HowItWorks />
+      </div>
+      <div data-progress-title="Trusted + Metrics">
+        <TrustedBy />
+        <Stats />
+      </div>
+      <div data-progress-title="Outcomes">
+        <Outcomes />
+      </div>
+      <div data-progress-title="FAQ">
+        <FAQ />
+      </div>
+      <div data-progress-title="Contact">
+        <ContactCloser onSubmitted={onSubmittedForm} />
+      </div>
     </div>
   );
 }
