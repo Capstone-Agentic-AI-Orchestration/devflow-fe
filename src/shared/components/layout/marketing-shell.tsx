@@ -91,7 +91,7 @@ function TopNav({ route, onNavigate }) {
     <nav className={"topnav" + (scrolled ? " scrolled" : "")}>
       <div className="topnav-inner">
         <a className="brand" onClick={() => onNavigate("home")} style={{ cursor: "pointer" }}>
-          <Logo />
+          <Logo size={24} />
         </a>
         <div className="links">
           {links.map(l => (
@@ -305,11 +305,51 @@ function SocialBtn({ children, label }) {
 /* ---------- Footer ---------- */
 function Footer({ onNavigate }) {
   const cols = [
-    { title: "Product", links: ["Platform", "How It Works", "Pricing", "Changelog", "Roadmap"] },
-    { title: "Company", links: ["About", "Customers", "Careers", "Press", "Partners"] },
-    { title: "Resources", links: ["Documentation", "API Reference", "Guides", "Community", "Status"] },
-    { title: "Legal", links: ["Terms of Service", "Privacy Policy", "Security", "DPA", "Cookies"] },
+    {
+      title: "Product",
+      links: [
+        { label: "Platform", route: "platform", desc: "What Alphaexplora delivers" },
+        { label: "How It Works", route: "how-it-works", desc: "The delivery lifecycle" },
+        { label: "Pricing", route: "pricing", desc: "Project and enterprise plans" },
+        { label: "Changelog", route: "resources/changelog", desc: "Product updates placeholder" },
+        { label: "Roadmap", route: "resources/roadmap", desc: "What is coming next" },
+      ],
+    },
+    {
+      title: "Company",
+      links: [
+        { label: "About", route: "about", desc: "Mission and team" },
+        { label: "Customers", route: "resources/customers", desc: "Example customer stories" },
+        { label: "Careers", route: "resources/careers", desc: "Future hiring information" },
+        { label: "Press", route: "resources/press", desc: "Media kit placeholder" },
+        { label: "Partners", route: "resources/partners", desc: "Integration partners" },
+      ],
+    },
+    {
+      title: "Resources",
+      links: [
+        { label: "Documentation", route: "resources/documentation", desc: "Delivery docs placeholder" },
+        { label: "API Reference", route: "resources/api-reference", desc: "Backend API overview" },
+        { label: "Guides", route: "resources/guides", desc: "Implementation guides" },
+        { label: "Community", route: "resources/community", desc: "Community channels" },
+        { label: "Status", route: "resources/status", desc: "System status placeholder" },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { label: "Terms of Service", route: "resources/terms-of-service", desc: "Terms placeholder" },
+        { label: "Privacy Policy", route: "resources/privacy-policy", desc: "Privacy placeholder" },
+        { label: "Security", route: "resources/security", desc: "Security practices" },
+        { label: "DPA", route: "resources/dpa", desc: "Data processing addendum" },
+        { label: "Cookies", route: "resources/cookies", desc: "Cookie policy" },
+      ],
+    },
   ];
+  const handleFooterLink = (link) => {
+    if (link.route === "contact") onNavigate("home", "contact");
+    else onNavigate(link.route);
+  };
   return (
     <footer className="footer">
       <div className="container-wide">
@@ -330,7 +370,18 @@ function Footer({ onNavigate }) {
             <div key={col.title}>
               <h5>{col.title}</h5>
               <ul>
-                {col.links.map(l => <li key={l}><a>{l}</a></li>)}
+                {col.links.map(link => (
+                  <li key={link.label}>
+                    <button
+                      type="button"
+                      className="footer-link"
+                      title={link.desc}
+                      onClick={() => handleFooterLink(link)}
+                    >
+                      {link.label}
+                    </button>
+                  </li>
+                ))}
               </ul>
             </div>
           ))}
