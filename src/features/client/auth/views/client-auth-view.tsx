@@ -30,7 +30,7 @@ export function ClientAuthView({ mode = "sign-in" }) {
         <div className="auth-form-top">
           {mode === "sign-in" ? (
             <>
-              <span>Don't have an account?</span>
+              <span>Don&apos;t have an account?</span>
               <a className="auth-link" onClick={() => router.push("/")}>Submit an inquiry first</a>
             </>
           ) : (
@@ -185,7 +185,7 @@ function SignUpForm({ initialEmail = "", onDone }) {
         </Field>
         <Field label="Set Password" error={errors.password}><PasswordInput value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 8 characters" /></Field>
         <Field label="Confirm Password" error={errors.confirm}><PasswordInput value={form.confirm} onChange={(event) => setForm({ ...form, confirm: event.target.value })} placeholder="Re-enter password" /></Field>
-        <label className="auth-checkbox" style={{ alignItems: "flex-start", gap: 10 }}><input type="checkbox" checked={form.terms} onChange={(event) => setForm({ ...form, terms: event.target.checked })} /> I agree to Alphaexplora's Terms of Service and Privacy Policy.</label>
+        <label className="auth-checkbox" style={{ alignItems: "flex-start", gap: 10 }}><input type="checkbox" checked={form.terms} onChange={(event) => setForm({ ...form, terms: event.target.checked })} /> I agree to Alphaexplora&apos;s Terms of Service and Privacy Policy.</label>
         {errors.terms && <span className="field-error">{errors.terms}</span>}
         {submitError && <div className="auth-inline-error">{submitError}</div>}
         {submitNotice && <div style={{ padding: 12, borderRadius: 10, background: "rgba(16,185,129,.10)", border: "1px solid rgba(16,185,129,.25)", color: "#B7F7D8", fontSize: 13, lineHeight: 1.5 }}>{submitNotice}</div>}
@@ -236,7 +236,7 @@ function ForgotForm() {
   return (
     <form onSubmit={submit} noValidate>
       <h1>Forgot your password?</h1>
-      <p className="lede">We'll email you a secure link to reset it.</p>
+      <p className="lede">We&apos;ll email you a secure link to reset it.</p>
       <div className="auth-form-fields">
         <Field label="Work Email" error={error}><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" /></Field>
         <Button type="submit" variant="primary" size="lg" iconRight={<IconArrowRight />} style={{ width: "100%" }} disabled={submitting}>

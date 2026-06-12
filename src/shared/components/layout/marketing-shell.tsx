@@ -159,7 +159,7 @@ function ContactCloser({ onSubmitted }) {
           <span className="eyebrow"><span className="dot" /> Get in touch</span>
           <h2 className="h-1 mt-4">Ready to <span className="gradient-text">transform</span> your enterprise?</h2>
           <p className="lead mt-4" style={{ margin: "16px auto 0" }}>
-            Let's discuss how Alphaexplora can accelerate your digital transformation
+            Let&apos;s discuss how Alphaexplora can accelerate your digital transformation
             and drive measurable business outcomes.
           </p>
         </div>
@@ -210,7 +210,7 @@ function ContactCloser({ onSubmitted }) {
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>Project Manager review within 1–2 days</div>
                   <div style={{ color: "var(--text-2)", fontSize: 13.5, lineHeight: 1.55 }}>
-                    Every inquiry is read by a real PM. We'll align scope, send credentials, and onboard your team.
+                    Every inquiry is read by a real PM. We&apos;ll align scope, send credentials, and onboard your team.
                   </div>
                 </div>
               </div>

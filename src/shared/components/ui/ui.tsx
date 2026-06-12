@@ -229,6 +229,14 @@ function Skeleton({ w = "100%", h = 14, r = 6, style }) {
   return <div className="skeleton" style={{ width: w, height: h, borderRadius: r, ...style }} />;
 }
 
+function ProgressBar({ percent = 0, color = "var(--accent)", height = 6 }) {
+  return (
+    <div style={{ width: "100%", background: "var(--surface-2)", borderRadius: height, height, overflow: "hidden", margin: "6px 0" }}>
+      <div style={{ width: `${Math.min(100, Math.max(0, percent))}%`, height: "100%", background: color, borderRadius: height, transition: "width .3s ease" }} />
+    </div>
+  );
+}
+
 export {
   Logo,
   Button,
@@ -246,4 +254,5 @@ export {
   TopBar,
   EmptyState,
   Skeleton,
+  ProgressBar,
 };
